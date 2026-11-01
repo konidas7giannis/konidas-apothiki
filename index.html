@@ -322,11 +322,14 @@ async function startCam(){
 async function loop(vid){
   while(scanning&&document.getElementById("vid")===vid){
     if(Date.now()>pauseUntil&&vid.readyState>=2&&!document.hidden){
-      try{const r=await detector.detect(vid);if(r&&r.length&&scanning)hit(r[0].rawValue,r[0].format)}catch(e){}
+      try{const r=await detector.detect(vid);if(r&&r.length&&scanning){const best=pickBest(r);hit(best.rawValue,best.format)}}catch(e){}
     }
     await new Promise(r=>setTimeout(r,90));
   }
 }
+const RETAIL=["ean_13","ean_8","upc_a","upc_e"];
+function pickBest(r){const known=r.find(x=>byCode(String(x.rawValue).trim()));return known||r.find(x=>RETAIL.includes(x.format))||r[0]}
+const isRetail=f=>/^(EAN|UPC)/.test(f||"");
 function stopCam(){scanning=false;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
 function hit(code,fmt){
   code=String(code||"").trim();if(!code)return;
@@ -353,7 +356,7 @@ function loadImg(file){return new Promise((res,rej)=>{const u=URL.createObjectUR
 function shrink(im,max,q){const s=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement("canvas");c.width=Math.round(im.naturalWidth*s);c.height=Math.round(im.naturalHeight*s);c.getContext("2d").drawImage(im,0,0,c.width,c.height);return q?c.toDataURL("image/jpeg",q):c}
 const photo=document.getElementById("photo");
 photo.addEventListener("change",async()=>{const f=photo.files&&photo.files[0];photo.value="";if(!f)return;
-  try{const im=await loadImg(f),c=shrink(im,1800),r=await getDetector().detect(c);if(r&&r.length){lastCode="";hit(r[0].rawValue,r[0].format)}else toast("Δεν βρέθηκε barcode. Φωτογράφισε πιο κοντά και ίσια.")}catch(e){toast("Δεν διαβάστηκε η φωτογραφία.")}});
+  try{const im=await loadImg(f),c=shrink(im,1800),r=await getDetector().detect(c);if(r&&r.length){lastCode="";const best=pickBest(r);hit(best.rawValue,best.format)}else toast("Δεν βρέθηκε barcode. Φωτογράφισε πιο κοντά και ίσια.")}catch(e){toast("Δεν διαβάστηκε η φωτογραφία.")}});
 const labelIn=document.getElementById("label");
 labelIn.addEventListener("change",async()=>{const f=labelIn.files&&labelIn.files[0];labelIn.value="";if(!f)return;
   try{const im=await loadImg(f),img=shrink(im,640,.6);
@@ -382,6 +385,7 @@ function addHit(code,fmt){
   const p=byCode(code);
   if(!p){
     if(V.cart.some(c=>c.nw&&c.code===code)){beepBad();fx(false);V.msg=["warn","Αυτή η νέα συσκευή είναι ήδη στη λίστα. Για δεύτερη ίδια πάτα +."];paint();return}
+    if(!isRetail(fmt)&&fmt!=="ΧΕΙΡΟΚΙΝΗΤΑ"){beepBad();fx(false);V.msg=["warn","Διάβασα <b>"+esc(code)+"</b> ("+esc(fmt)+"). Μοιάζει με σειριακό ή εσωτερικό κωδικό. Σκάναρε το barcode με τα 13 ψηφία (EAN) στην ετικέτα του κουτιού."];paint();return}
     beepBad();fx(false);V.unknown=code;V.ufmt=fmt;go("unknown");return}
   const c=V.cart.find(x=>x.p===p.id),have=c?c.q:0,a=avail(p.id,have+1);
   if(!a.ok){beepBad();fx(false);V.msg=["bad",a.why];paint();return}
@@ -392,7 +396,7 @@ function addHit(code,fmt){
 }
 function countHit(code,fmt){
   const p=byCode(code);
-  if(!p){beepBad();fx(false);V.unknown=code;V.ufmt=fmt;go("unknown");return}
+  if(!p){if(!isRetail(fmt)&&fmt!=="ΧΕΙΡΟΚΙΝΗΤΑ"){beepBad();fx(false);V.msg=["warn","Διάβασα <b>"+esc(code)+"</b> ("+esc(fmt)+"). Μοιάζει με σειριακό κωδικό. Σκάναρε το EAN με τα 13 ψηφία."];paint();return}beepBad();fx(false);V.unknown=code;V.ufmt=fmt;go("unknown");return}
   beepOk();fx(true);const c=V.cart.find(x=>x.p===p.id);if(c)c.q++;else V.cart.unshift({p:p.id,q:1});V.fresh=p.id;
   V.msg=["ok","<b>"+esc(p.n)+"</b> · "+(c?c.q:1)];saveDraft();paint();
 }
@@ -571,8 +575,8 @@ const A={
   camretry:()=>startCam(),
   photo:()=>photo.click(),
   manual:()=>{V.q="";V.focus=1;go("manual")},
-  manualpick:v=>{const p=P(v);V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(p.e,"χειροκίνητα")},
-  usecode:()=>{const c=(V.q||"").trim();V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(c,"χειροκίνητα")},
+  manualpick:v=>{const p=P(v);V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(p.e,"ΧΕΙΡΟΚΙΝΗΤΑ")},
+  usecode:()=>{const c=(V.q||"").trim();V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(c,"ΧΕΙΡΟΚΙΝΗΤΑ")},
   newdev:()=>labelIn.click(),
   link:v=>{linkCode(v,V.unknown);save();V.q="";V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(V.unknown,V.ufmt)},
   doc:v=>{V.doc=v;V.msg=null;saveDraft();render()},
