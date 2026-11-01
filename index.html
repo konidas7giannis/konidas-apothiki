@@ -130,7 +130,7 @@ th{font-size:11px;color:var(--muted);text-transform:uppercase}
   <div class="demo">ΔΟΚΙΜΗ με παράδειγμα προϊόντων · δεν αγγίζει το site</div>
   <main id="main"></main>
 </div>
-<input type="file" id="photo" accept="image/*" capture="environment" class="hidden">
+<input type="file" id="photo" accept="image/*" capture="environment" class="hidden"><input type="file" id="label" accept="image/*" capture="environment" class="hidden">
 <script>
 (function(){
 "use strict";
@@ -150,8 +150,8 @@ var V={scr:S.user?"home":"who"}; // view state (not saved)
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
 function P(id){for(var i=0;i<S.P.length;i++)if(S.P[i].id===id)return S.P[i]}
-function byEan(c){for(var i=0;i<S.P.length;i++)if(S.P[i].e===c)return S.P[i]}
-function pend(){return S.mv.filter(function(m){return!m.syn&&!m.x})}
+function byEan(c){for(var i=0;i<S.P.length;i++){var x=S.P[i];if(x.e===c||(x.x||[]).indexOf(c)>-1)return x}}
+function pend(){return S.mv.filter(function(m){return!m.syn&&!m.x&&m.p})}
 function sq(p,w){return(S.site[p]&&S.site[p][w])||0}
 function lq(p,w){var q=sq(p,w);pend().forEach(function(m){if(m.p!==p)return;if(m.f===w)q-=m.q;if(m.to===w)q+=m.q});return q}
 function tot(p){var t=0;WH.forEach(function(w){if(w[0]!=="PARAGGELIA")t+=lq(p,w[0])});return t}
@@ -174,16 +174,20 @@ function startCam(){
   var v=document.getElementById("vid");if(!v)return;
   var fail=function(){V.cam="off";stopCam();render()};
   if(typeof ZXing==="undefined"||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){fail();return}
-  var h=new Map();h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39]);
+  var h=new Map();var BF=ZXing.BarcodeFormat;h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[BF.EAN_13,BF.EAN_8,BF.UPC_A,BF.UPC_E,BF.CODE_128,BF.CODE_39,BF.CODE_93,BF.ITF,BF.CODABAR,BF.QR_CODE,BF.DATA_MATRIX,BF.PDF_417]);
   reader=new ZXing.BrowserMultiFormatReader(h,250);
-  reader.decodeFromConstraints({video:{facingMode:{ideal:"environment"}}},v,function(r){if(r)hit(r.getText())}).catch(fail);
+  reader.decodeFromConstraints({video:{facingMode:{ideal:"environment"}}},v,function(r){if(r)hit(r.getText(),fmtName(r))}).catch(fail);
 }
-function hit(code){var now=Date.now();if(code===lastCode&&now-lastAt<3000)return;lastCode=code;lastAt=now;V.onScan&&V.onScan(code)}
+function fmtName(r){try{var n=ZXing.BarcodeFormat[r.getBarcodeFormat()];return String(n).replace("_"," ")}catch(e){return""}}
+function hit(code,f){var now=Date.now();if(code===lastCode&&now-lastAt<3000)return;lastCode=code;lastAt=now;V.onScan&&V.onScan(code,f)}
 var photo=document.getElementById("photo");
 photo.addEventListener("change",function(){var f=photo.files&&photo.files[0];photo.value="";if(!f)return;
   if(typeof ZXing==="undefined"){say("Η ανάγνωση δεν φόρτωσε. Γράψε τον κωδικό.");return}
   var img=new Image(),u=URL.createObjectURL(f);img.onload=function(){var s=Math.min(1,1600/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=img.width*s;c.height=img.height*s;c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);
-    var h=new Map();h.set(ZXing.DecodeHintType.TRY_HARDER,true);new ZXing.BrowserMultiFormatReader(h).decodeFromImageUrl(c.toDataURL("image/jpeg",.9)).then(function(r){lastCode="";V.onScan&&V.onScan(r.getText())}).catch(function(){say("Δεν διαβάστηκε. Πιο κοντά και με φως.")})};img.src=u});
+    var h=new Map();h.set(ZXing.DecodeHintType.TRY_HARDER,true);new ZXing.BrowserMultiFormatReader(h).decodeFromImageUrl(c.toDataURL("image/jpeg",.9)).then(function(r){lastCode="";V.onScan&&V.onScan(r.getText(),fmtName(r))}).catch(function(){say("Δεν διαβάστηκε. Πιο κοντά και με φως.")})};img.src=u});
+var labelIn=document.getElementById("label");
+labelIn.addEventListener("change",function(){var f=labelIn.files&&labelIn.files[0];labelIn.value="";if(!f)return;var img=new Image(),u=URL.createObjectURL(f);img.onload=function(){var s=Math.min(1,700/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=img.width*s;c.height=img.height*s;c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);
+  V.cart.unshift({nw:1,code:V.unknown,fmt:V.ufmt,img:c.toDataURL("image/jpeg",.6),q:1});beep(true);V.msg=["ok","✓ Νέα συσκευή καταγράφηκε. Θα ελεγχθεί πριν μπει στο site."];V.scr="scan";lastScr=null;render()};img.src=u});
 function camBlock(){
   if(V.cam==="off")return '<div class="camoff"><b>Η κάμερα δεν άνοιξε. Επέτρεψε την κάμερα στο Safari ή δοκίμασε:</b><button class="btn btn-navy" data-a="photo">Φωτογραφία του barcode</button><button class="btn btn-ghost" data-a="manual">Γράψε κωδικό ή μοντέλο</button></div>';
   return '<div class="camwrap"><video id="vid" playsinline muted autoplay></video><div class="aim"></div><div class="flash" id="flash"></div></div><button class="back" data-a="manual">Δεν διαβάζεται; Γράψε κωδικό ή μοντέλο</button>';
@@ -202,7 +206,7 @@ function render(){
   var a=document.getElementById("auto");if(a)a.focus();
   window.scrollTo(0,0);
 }
-function go(s){V.scr=s;V.msg=null;render()}
+function go(s){if(s==="unknown")V.flagged=0;V.scr=s;V.msg=null;render()}
 function msg(){return V.msg?'<div class="msg m-'+V.msg[0]+'">'+esc(V.msg[1])+'</div>':""}
 var SCR={};
 SCR.who=function(){return '<h1>Ποιος είσαι;</h1><div class="muted">Μία φορά, για να φαίνεται ποιος έκανε κάθε κίνηση.</div><div class="big">'+USERS.map(function(u){return '<button class="bigbtn light" data-a="setuser" data-v="'+esc(u)+'"><b>'+esc(u)+'</b></button>'}).join("")+'</div>'};
@@ -229,13 +233,13 @@ var DYN={};
 DYN.scan=function(){
   var n=V.cart.reduce(function(a,c){return a+c.q},0);
   return msg()+
-  '<div class="list">'+V.cart.map(function(c,i){var p=P(c.p);return '<div class="item"><div class="t"><b>'+esc(p.n)+'</b><small>'+esc(p.m)+(c.res?' · κράτηση '+esc(c.res):"")+'</small></div><div class="qty"><button data-a="cq" data-i="'+i+'" data-v="-1">−</button><span>'+c.q+'</span><button data-a="cq" data-i="'+i+'" data-v="1">+</button></div><button class="rm" data-a="crm" data-i="'+i+'" aria-label="Αφαίρεση">×</button></div>'}).join("")+'</div>'+
+  '<div class="list">'+V.cart.map(function(c,i){var p=c.nw?{n:"Νέα συσκευή",m:c.code}:P(c.p);return '<div class="item">'+(c.img?'<img src="'+c.img+'" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:8px">':"")+'<div class="t"><b>'+esc(p.n)+'</b><small>'+esc(p.m)+(c.res?' · κράτηση '+esc(c.res):"")+'</small></div><div class="qty"><button data-a="cq" data-i="'+i+'" data-v="-1">−</button><span>'+c.q+'</span><button data-a="cq" data-i="'+i+'" data-v="1">+</button></div><button class="rm" data-a="crm" data-i="'+i+'" aria-label="Αφαίρεση">×</button></div>'}).join("")+'</div>'+
   (n?"":'<div class="muted" style="text-align:center">Πέρνα το barcode κάθε κουτιού μπροστά από την κάμερα.<br>Για 2ο ίδιο κουτί πάτα +.</div>')+
   '<div class="footer"><button class="btn btn-ok" data-a="tosum"'+(n?"":" disabled")+'>Τέλος · '+n+' '+(n===1?"συσκευή":"συσκευές")+'</button><button class="btn btn-ghost" data-a="cancelflow">Ακύρωση</button></div>';
 };
-function addToCart(code){
+function addToCart(code,fmt){
   var p=byEan(code);
-  if(!p){beep(false);flash(false);V.unknown=code;go("unknown");return}
+  if(!p){if(V.cart.some(function(c){return c.nw&&c.code===code})){V.msg=["warn","Αυτή η νέα συσκευή είναι ήδη στη λίστα. Για 2η ίδια πάτα +."];render();return}beep(false);flash(false);V.unknown=code;V.ufmt=fmt||"";go("unknown");return}
   var inCart=V.cart.filter(function(c){return c.p===p.id})[0],have=inCart?inCart.q:0;
   var ok=checkAvail(p.id,have+1);
   if(!ok.ok){beep(false);flash(false);V.msg=["bad",ok.why];render();return}
@@ -251,18 +255,21 @@ function checkAvail(pid,need){
   var extra=lq(pid,"PARAGGELIA")>0&&to!=="CUS"?" (Είναι πουλημένο για "+(custOf(pid)||"πελάτη")+". Αν πάει στον πελάτη, διάλεξε ΠΡΟΣ: Πελάτης.)":"";
   return{ok:false,why:"✕ "+p.n+": στο "+NAMES[f]+" το σύστημα έχει "+here+(need>1?" και έχεις ήδη "+(need-1)+" στη λίστα":"")+". Δεν προστέθηκε."+extra};
 }
-SCR.unknown=function(){return '<div class="msg m-bad">Το barcode '+esc(V.unknown)+' δεν αντιστοιχεί σε καμία συσκευή. Δεν προστέθηκε τίποτα.</div>'+
-  (S.user==="Γιάννης"?'<h2>Ποια συσκευή είναι;</h2><div class="muted">Μία φορά. Μετά θα την αναγνωρίζει πάντα.</div><div class="list">'+S.P.map(function(p){return '<button class="prow" data-a="link" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+'</small></div></button>'}).join("")+'</div>':'<div class="muted">Άφησε το κουτί στην άκρη και πες το στον Γιάννη.</div>')+
+SCR.unknown=function(){var isRec=V.scr==="unknown"&&V.onScan===addToCart&&V.from==="SUP";
+  if(!isRec&&!V.flagged){S.unk=S.unk||[];S.unk.push({code:V.unknown,fmt:V.ufmt,t:Date.now(),u:S.user,w:V.from||V.cw});save();V.flagged=1}
+  return '<div class="msg m-warn">Διάβασα: <b>'+esc(V.unknown)+'</b>'+(V.ufmt?' ('+esc(V.ufmt)+')':"")+'<br>Δεν υπάρχει ακόμα στις συσκευές μας.</div>'+
+  (isRec?'<h2>Είναι καινούρια συσκευή που ήρθε;</h2><button class="btn btn-ok" data-a="newdev">Ναι · φωτογραφία της ετικέτας</button><div class="muted">Φωτογράφισε την ετικέτα του κουτιού όπου φαίνονται μάρκα και μοντέλο. Μπαίνει στην παραλαβή και ελέγχεται πριν περάσει στο site.</div>':'<div class="msg m-bad">Άγνωστη συσκευή δεν μετακινείται πριν ελεγχθεί. Άφησέ τη στην άκρη. Ο Γιάννης το βλέπει στη Διαχείριση.</div>')+
+  (S.user==="Γιάννης"?'<h2>Ή είναι συσκευή που ήδη έχουμε;</h2><div class="muted">Σύνδεσέ την μία φορά. Μετά θα την αναγνωρίζει πάντα.</div><div class="list">'+S.P.map(function(p){return '<button class="prow" data-a="link" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+'</small></div></button>'}).join("")+'</div>':"")+
   '<button class="btn btn-ghost" data-a="backscan">Πίσω στο σκανάρισμα</button>'};
 SCR.manual=function(){var q=(V.q||"").toLowerCase();
   var l=S.P.filter(function(p){return q&&(p.n+" "+p.m+" "+p.e).toLowerCase().indexOf(q)>-1});
   return '<button class="back" data-a="backscan">← Πίσω</button><h1>Γράψε κωδικό ή μοντέλο</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="π.χ. 520… ή TV55" autocomplete="off"><div class="list">'+
-  l.map(function(p){return '<button class="prow" data-a="manualpick" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+' · '+esc(p.e)+'</small></div></button>'}).join("")+'</div>'};
+  l.map(function(p){return '<button class="prow" data-a="manualpick" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+' · '+esc(p.e)+'</small></div></button>'}).join("")+'</div>'+(q.length>=4&&!l.length?'<button class="btn btn-navy" data-a="usecode">Χρήση κωδικού '+esc(V.q)+'</button>':"")};
 SCR.sum=function(){
   var n=V.cart.reduce(function(a,c){return a+c.q},0),f=V.from,to=V.to;
   var s=(f==="SUP"?"Παραλαβή "+n+" συσκευών στο "+NAMES[to]:to==="CUS"?"Παράδοση "+n+" συσκευών σε πελάτη, από "+NAMES[f]:"Μεταφορά "+n+" συσκευών από "+NAMES[f]+" σε "+NAMES[to])+".";
   var doc=f==="SUP"?'<h2>Ήρθε τιμολόγιο;</h2><div class="choice"><button class="opt'+(V.doc==="inv"?" sel":"")+'" data-a="doc" data-v="inv">Ναι<small>με τιμές</small></button><button class="opt'+(V.doc==="delt"?" sel":"")+'" data-a="doc" data-v="delt">Μόνο δελτίο<small>θα έρθει μετά</small></button></div>':"";
-  return '<div class="sentence">'+esc(s)+'</div><div class="list">'+V.cart.map(function(c){var p=P(c.p);return '<div class="item"><div class="t"><b>'+c.q+' × '+esc(p.n)+'</b><small>'+esc(p.m)+(c.res?' · κράτηση '+esc(c.res):"")+'</small></div></div>'}).join("")+'</div>'+doc+msg()+
+  return '<div class="sentence">'+esc(s)+'</div><div class="list">'+V.cart.map(function(c){var p=c.nw?{n:"Νέα συσκευή",m:c.code}:P(c.p);return '<div class="item"><div class="t"><b>'+c.q+' × '+esc(p.n)+'</b><small>'+esc(p.m)+(c.res?' · κράτηση '+esc(c.res):"")+'</small></div></div>'}).join("")+'</div>'+doc+msg()+
   '<div class="footer"><button class="btn btn-ok" data-a="commit">✓ Σωστό, καταχώρηση</button><button class="btn btn-ghost" data-a="backscan">Όχι, πίσω στη λίστα</button></div>'};
 SCR.done=function(){return '<div class="done"><div class="ck">✓</div><h1>Καταχωρήθηκε</h1><div class="muted">'+esc(V.doneTxt||"")+'</div></div><div class="footer"><button class="btn btn-navy" data-a="go" data-v="home">Τέλος</button><button class="btn btn-bad" data-a="undobatch">Αναίρεση (έγινε λάθος)</button></div>'};
 
@@ -295,8 +302,14 @@ SCR.find=function(){var q=(V.q||"").toLowerCase();var l=S.P.filter(function(p){r
 SCR.prod=function(){var p=P(V.fp),c=custOf(p.id);
   return '<button class="back" data-a="go" data-v="find">← Πίσω</button><h1>'+esc(p.n)+'</h1><div class="muted">'+esc(p.m)+' · '+esc(p.e)+'</div><div class="stock">'+WH.map(function(w){var q=lq(p.id,w[0]);return '<div class="wh'+(q?"":" z")+'"><span>'+esc(w[1])+'</span><b>'+q+'</b>'+(w[0]==="PARAGGELIA"&&q&&c?'<span>'+esc(c)+'</span>':"")+'</div>'}).join("")+'</div>'};
 
+SCR.linkpick=function(){var q=(V.q||"").toLowerCase();var l=S.P.filter(function(p){return !q||(p.n+" "+p.m).toLowerCase().indexOf(q)>-1});
+  return '<button class="back" data-a="go" data-v="admin">← Πίσω</button><h1>Ποια συσκευή είναι;</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="μοντέλο ή όνομα"><div class="list">'+l.map(function(p){return '<button class="prow" data-a="linkdo" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+'</small></div></button>'}).join("")+'</div>'};
 /* admin (Γιάννης) */
-SCR.admin=function(){var t=V.at||"hist",h='<button class="back" data-a="go" data-v="home">← Πίσω</button><h1>Διαχείριση</h1><div class="tabs">'+[["hist","Ιστορικό"],["chk","Έλεγχοι"],["site","Πέρασμα στο site"],["set","Ρυθμίσεις"]].map(function(x){return '<button class="'+(t===x[0]?"on":"")+'" data-a="at" data-v="'+x[0]+'">'+x[1]+'</button>'}).join("")+'</div>';
+SCR.admin=function(){var t=V.at||"new",h='<button class="back" data-a="go" data-v="home">← Πίσω</button><h1>Διαχείριση</h1><div class="tabs">'+[["new","Νέες συσκευές"],["hist","Ιστορικό"],["chk","Έλεγχοι"],["site","Πέρασμα στο site"],["set","Ρυθμίσεις"]].map(function(x){return '<button class="'+(t===x[0]?"on":"")+'" data-a="at" data-v="'+x[0]+'">'+x[1]+'</button>'}).join("")+'</div>';
+  if(t==="new"){var nm=S.mv.filter(function(m){return m.nw&&!m.p&&!m.x}),uf=(S.unk||[]);
+    h+='<div class="muted">Συσκευές που σκαναρίστηκαν και δεν τις ξέρουμε. Στην κανονική έκδοση τις ελέγχει ο Claude με το site και σου τις φέρνει έτοιμες για έγκριση.</div>';
+    h+=nm.length?nm.map(function(m){return '<div class="item" style="align-items:flex-start">'+(m.img?'<img src="'+m.img+'" alt="Ετικέτα" style="width:84px;height:84px;object-fit:cover;border-radius:10px">':"")+'<div class="t"><b>'+m.q+' × νέα συσκευή</b><small>'+esc(m.code)+' '+esc(m.fmt||"")+' · '+esc(NAMES[m.to])+' · '+hm(m.t)+' · '+esc(m.u)+'</small><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><input class="txt" style="padding:8px;font-size:15px" data-in="nn_'+m.id+'" placeholder="όνομα προϊόντος"><button class="btn btn-ok btn-sm" data-a="mknew" data-v="'+m.id+'">Δημιουργία</button><button class="btn btn-ghost btn-sm" data-a="linkold" data-v="'+m.id+'">Υπάρχει ήδη</button></div></div></div>'}).join(""):'<div class="msg m-ok">Καμία νέα συσκευή σε αναμονή.</div>';
+    if(uf.length)h+='<h2>Άγνωστα barcode σε μετακίνηση/μέτρηση</h2><div class="list">'+uf.map(function(u,i){return '<div class="item"><div class="t"><b>'+esc(u.code)+'</b><small>'+esc(u.fmt||"")+' · '+esc(NAMES[u.w]||"")+' · '+hm(u.t)+' · '+esc(u.u)+'</small></div><button class="rm" data-a="unkx" data-i="'+i+'">×</button></div>'}).join("")+'</div>'}
   if(t==="hist")h+='<div class="list">'+S.mv.slice().sort(function(a,b){return b.t-a.t}).map(mvRow).join("")+'</div>';
   if(t==="chk"){var ni=S.mv.filter(function(m){return!m.x&&m.ty==="receive"&&m.doc==="delt"});var rs=S.P.filter(function(p){return lq(p.id,"PARAGGELIA")>0});
     h+='<h2>Χωρίς τιμολόγιο</h2>'+(ni.length?'<div class="list">'+ni.map(mvRow).join("")+'</div>':'<div class="msg m-ok">Κανένα.</div>')+'<h2>Πουλημένα, δεν παραδόθηκαν</h2>'+(rs.length?'<div class="list">'+rs.map(function(p){return '<div class="prow"><div><b>'+esc(p.n)+'</b><small>'+esc(custOf(p.id)||"")+'</small></div><span class="n">'+lq(p.id,"PARAGGELIA")+'</span></div>'}).join("")+'</div>':'<div class="msg m-ok">Κανένα.</div>')}
@@ -304,7 +317,7 @@ SCR.admin=function(){var t=V.at||"hist",h='<button class="back" data-a="go" data
     h+='<div class="muted">Έτσι θα είναι το κουμπί στο admin του konidas.gr. Αλλάζει μόνο νούμερα αποθέματος ανά αποθήκη.</div>'+msg()+(d.length?'<div style="overflow-x:auto"><table><thead><tr><th>Συσκευή</th><th>Αποθήκη</th><th>Site → νέο</th></tr></thead><tbody>'+d.join("")+'</tbody></table></div><button class="btn btn-ok" data-a="sync">Πέρασε '+pend().length+' κινήσεις στο site</button>':'<div class="msg m-ok">Το site συμφωνεί. Τίποτα για πέρασμα.</div>')+(S.bk.length?'<button class="btn btn-bad" data-a="unsync">Αναίρεση τελευταίου περάσματος</button>':"")}
   if(t==="set")h+='<button class="btn btn-ghost" data-a="go" data-v="who">Αλλαγή χρήστη (για δοκιμή)</button><button class="btn btn-ghost" data-a="reset">Επαναφορά δοκιμής από την αρχή</button>';
   return h};
-function mvRow(m){var p=P(m.p),k={move:"Μεταφορά",receive:"Παραλαβή",deliver:"Παράδοση",reserve:"Πώληση",count:"Μέτρηση"}[m.ty];
+function mvRow(m){var p=m.p?P(m.p):{n:"Νέα συσκευή "+(m.code||"")},k={move:"Μεταφορά",receive:"Παραλαβή",deliver:"Παράδοση",reserve:"Πώληση",count:"Μέτρηση"}[m.ty];
   var st=m.x?'<span class="pill p-b">ακυρώθηκε</span>':m.syn?'<span class="pill p-o">στο site</span>':'<span class="pill p-w">περιμένει site</span>';
   var b="";if(!m.x){if(!m.syn)b+='<button class="btn btn-bad btn-sm" data-a="mx" data-v="'+m.id+'">Ακύρωση</button>';if(m.ty==="receive"&&m.doc==="delt")b+='<button class="btn btn-ghost btn-sm" data-a="minv" data-v="'+m.id+'">Ήρθε τιμολόγιο</button>'}
   return '<div class="mv'+(m.x?" x":m.syn?" s":"")+'"><div class="r1"><span>'+k+' · '+m.q+' × '+esc(p?p.n:"?")+'</span>'+st+'</div><div>'+esc(NAMES[m.f]||"")+' → '+esc(NAMES[m.to]||"")+(m.cust?" · "+esc(m.cust):"")+(m.ty==="receive"&&m.doc==="delt"?' · <span class="pill p-w">χωρίς τιμολόγιο</span>':"")+'</div><div class="mt">'+hm(m.t)+' · '+esc(m.u)+'</div>'+(b?'<div style="display:flex;gap:8px">'+b+'</div>':"")+'</div>'}
@@ -316,6 +329,7 @@ function commitCart(){
   if(V.from==="SUP"&&!V.doc){V.msg=["bad","Πες αν ήρθε τιμολόγιο ή μόνο δελτίο."];render();return}
   var b=uid(),t=Date.now(),n=0;
   V.cart.forEach(function(c){var left=c.q;
+    if(c.nw){S.mv.push({id:uid(),b:b,t:t,u:S.user,ty:"receive",p:null,nw:1,code:c.code,fmt:c.fmt,img:c.img,q:c.q,f:"SUP",to:V.to,doc:V.doc});n+=c.q;return}
     if(V.to==="CUS"){var r=Math.min(left,lq(c.p,"PARAGGELIA"));if(r>0){S.mv.push({id:uid(),b:b,t:t,u:S.user,ty:"deliver",p:c.p,q:r,f:"PARAGGELIA",to:"CUS",note:"από "+NAMES[V.from],cust:custOf(c.p)});left-=r}}
     if(left>0){var m={id:uid(),b:b,t:t,u:S.user,ty:V.from==="SUP"?"receive":V.to==="CUS"?"deliver":"move",p:c.p,q:left,f:V.from,to:V.to};if(V.from==="SUP")m.doc=V.doc;S.mv.push(m)}
     n+=c.q});
@@ -333,15 +347,17 @@ document.addEventListener("click",function(e){
   case "lastroute":startScan(S.last[0],S.last[1]);break;
   case "pickfrom":V.from=v;go("to");break;
   case "pickto":startScan(V.from,v);break;
-  case "cq":var c=V.cart[i];if(!c)break;if(+v>0&&V.scr==="scan"){var ok=checkAvail(c.p,c.q+1);if(!ok.ok){V.msg=["bad",ok.why];render();break}}c.q=Math.max(1,c.q+(+v));V.msg=null;render();break;
+  case "cq":var c=V.cart[i];if(!c)break;if(+v>0&&V.scr==="scan"&&!c.nw){var ok=checkAvail(c.p,c.q+1);if(!ok.ok){V.msg=["bad",ok.why];render();break}}c.q=Math.max(1,c.q+(+v));V.msg=null;render();break;
   case "crm":V.cart.splice(i,1);V.msg=null;render();break;
   case "tosum":go("sum");break;
-  case "backscan":V.q="";V.scr=V.cw&&V.onScan===countHit?"countscan":"scan";V.msg=null;render();break;
+  case "newdev":V.flagged=0;labelIn.click();break;
+  case "backscan":V.flagged=0;V.q="";V.scr=V.cw&&V.onScan===countHit?"countscan":"scan";V.msg=null;render();break;
   case "cancelflow":V.cart=[];V.cw=null;go("home");break;
   case "photo":photo.click();break;
   case "manual":V.q="";go("manual");break;
+  case "usecode":var cd=(V.q||"").trim();V.scr=V.cw&&V.onScan===countHit?"countscan":"scan";lastCode="";V.onScan(cd,"χειροκίνητα");break;
   case "manualpick":var p=P(v);V.scr=V.cw&&V.onScan===countHit?"countscan":"scan";lastCode="";V.onScan(p.e);if(V.scr!=="unknown")render();break;
-  case "link":var pp=P(v);pp.e=V.unknown;save();V.scr=V.cw&&V.onScan===countHit?"countscan":"scan";lastCode="";V.onScan(pp.e);break;
+  case "link":var pp=P(v);pp.x=pp.x||[];pp.x.push(V.unknown);V.flagged=0;save();V.scr=V.cw&&V.onScan===countHit?"countscan":"scan";lastCode="";V.onScan(pp.e);break;
   case "doc":V.doc=v;V.msg=null;render();break;
   case "commit":commitCart();break;
   case "undobatch":S.mv=S.mv.filter(function(m){return !(m.b===V.lastBatch&&!m.syn)});save();say("Αναιρέθηκε. Τίποτα δεν άλλαξε.");go("home");break;
@@ -362,10 +378,14 @@ document.addEventListener("click",function(e){
   case "minv":S.mv.forEach(function(m){if(m.id===v)m.doc="inv"});save();render();break;
   case "sync":var ids=pend().map(function(m){return m.id}),bk=JSON.parse(JSON.stringify(S.site)),nw={};S.P.forEach(function(p){nw[p.id]={};WH.forEach(function(w){var q=lq(p.id,w[0]);if(q)nw[p.id][w[0]]=q})});S.site=nw;var now=Date.now();S.mv.forEach(function(m){if(ids.indexOf(m.id)>-1)m.syn=now});S.bk.push({site:bk,ids:ids});if(S.bk.length>10)S.bk.shift();save();V.msg=["ok","✓ Πέρασαν "+ids.length+" κινήσεις. Έλεγχος: όλα συμφωνούν. Κρατήθηκε backup."];render();break;
   case "unsync":var l=S.bk.pop();if(l){S.site=l.site;S.mv.forEach(function(m){if(l.ids.indexOf(m.id)>-1)delete m.syn});save();V.msg=["ok","Το site γύρισε όπως ήταν."];render()}break;
+  case "mknew":var mm=S.mv.filter(function(m){return m.id===v})[0],nmv=(V["nn_"+v]||"").trim();if(!nmv){say("Γράψε όνομα προϊόντος.");break}var np={id:"n"+uid(),n:nmv,m:"ΝΕΟ",e:mm.code};S.P.push(np);mm.p=np.id;delete mm.nw;save();say("Δημιουργήθηκε. Η παραλαβή μπήκε για πέρασμα στο site.");render();break;
+  case "linkold":V.linkm=v;V.q="";go("linkpick");break;
+  case "linkdo":var lm=S.mv.filter(function(m){return m.id===V.linkm})[0],lp=P(v);lp.x=lp.x||[];lp.x.push(lm.code);lm.p=lp.id;delete lm.nw;save();V.at="new";say("Συνδέθηκε με "+lp.n);go("admin");break;
+  case "unkx":S.unk.splice(i,1);save();render();break;
   case "reset":var u=S.user;S=seed();S.user=u;save();say("Η δοκιμή ξεκίνησε από την αρχή");go("home");break;
   }
 });
-function countHit(code){var p=byEan(code);if(!p){beep(false);flash(false);V.unknown=code;go("unknown");return}
+function countHit(code,fmt){var p=byEan(code);if(!p){beep(false);flash(false);V.unknown=code;V.ufmt=fmt||"";go("unknown");return}
   beep(true);flash(true);var c=V.cart.filter(function(x){return x.p===p.id})[0];if(c)c.q++;else V.cart.unshift({p:p.id,q:1});V.msg=["ok","✓ "+p.n];V.scr="countscan";render()}
 render();
 })();
