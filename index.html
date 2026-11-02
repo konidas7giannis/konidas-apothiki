@@ -386,7 +386,7 @@ function toast(t,btn,fn){document.querySelectorAll(".toast").forEach(x=>x.remove
    ΚΑΜΕΡΑ & ΣΑΡΩΣΗ  (ZXing-C++ WebAssembly, τοπικά)
    ========================================================= */
 const BDA=window.BarcodeDetectionAPI;
-let detector=null,stream=null,scanning=false,lastCode="",lastAt=0,pauseUntil=0;
+let detector=null,stream=null,scanning=false,lastCode="",lastAt=0,pauseUntil=0,seen=null;
 function getDetector(){
   if(detector)return detector;
   if(!BDA)throw new Error("nolib");
@@ -411,8 +411,9 @@ async function startCam(){
 }
 async function loop(vid){
   while(scanning&&document.getElementById("vid")===vid){
+    if(seen&&Date.now()-seen.at>1200)seen=null;
     if(Date.now()>pauseUntil&&vid.readyState>=2&&!document.hidden){
-      try{const r=await detector.detect(vid);if(r&&r.length&&scanning){const best=pickBest(r);hit(best.rawValue,best.format)}}catch(e){}
+      try{const r=await detector.detect(vid);if(r&&r.length&&scanning){const best=pickBest(r);hit(best.rawValue,best.format)}else if(scanning){seen=null}}catch(e){}
     }
     await new Promise(r=>setTimeout(r,90));
   }
@@ -425,8 +426,11 @@ function whCode(c){const m=/^KONIDAS-WH-([A-Z]+)$/.exec(String(c||"").trim());re
 function hit(code,fmt){
   code=String(code||"").trim();if(!code)return;
   const now=Date.now();
-  if(code===lastCode&&now-lastAt<4000){lastAt=now;return} /* το ίδιο κουτί που μένει μπροστά στην κάμερα δεν μετριέται δεύτερη φορά */
-  lastCode=code;lastAt=now;pauseUntil=now+650;
+  /* Το ίδιο κουτί που μένει μπροστά στην κάμερα δεν μετριέται δεύτερη φορά.
+     Ίδιο barcode ξαναμετράει μόνο αν έφυγε από την κάμερα για 1,2" (= επόμενο κουτί). */
+  if(seen&&seen.code===code){seen.at=now;return}
+  if(code===lastCode&&now-lastAt<1200){lastAt=now;seen={code,at:now};return}
+  seen={code,at:now};lastCode=code;lastAt=now;pauseUntil=now+450;
   const w=whCode(code);if(w&&V.onScan!==whHit&&V.onScan!==setupHit){whSeen(w);return}
   V.onScan&&V.onScan(code,fmtLabel(fmt));
 }
@@ -482,7 +486,7 @@ function addHit(code,fmt,direct){
   const c=V.cart.find(x=>x.p===p.id),have=c?c.q:0,a=avail(p.id,have+1);
   if(!a.ok){beepBad();fx(false);V.msg=["bad",a.why];paint();return}
   beepOk();fx(true);
-  if(c){c.q++;V.fresh=p.id}else{V.cart.unshift({p:p.id,q:1,res:a.res});V.fresh=p.id}
+  if(c){c.q++;if(V.manual)c.man=1;V.fresh=p.id}else{V.cart.unshift({p:p.id,q:1,res:a.res,man:V.manual?1:0});V.fresh=p.id}
   const nq=c?c.q:1,rq=V.to==="CUS"?lq(p.id,"PARAGGELIA"):0;
   V.msg=rq>0&&nq>rq?["warn","<b>"+esc(p.n)+"</b> · σκάναρες "+nq+" αλλά η κράτηση "+esc(a.res||"")+" είναι για "+rq+". Αν είναι λάθος, πάτα −."]:["ok","<b>"+esc(p.n)+"</b>"+(c?" · τώρα "+c.q:"")+(a.res?" · κράτηση "+esc(a.res):"")];
   say(brandOf(p)+(c?", "+c.q:""));
@@ -504,7 +508,7 @@ function commitMove(){
   for(const c of V.cart){let left=c.q;n+=c.q;
     if(c.nw){addMove({id:uid(),b,t,u:S.user,ty:"receive",p:null,nw:1,code:c.code,fmt:c.fmt,img:c.img,q:c.q,f:"SUP",to:V.to,doc:V.doc,note:dnote||undefined});continue}
     if(V.to==="CUS"){const r=Math.min(left,lq(c.p,"PARAGGELIA"));if(r>0){addMove({id:uid(),b,t,u:S.user,ty:"deliver",p:c.p,q:r,f:"PARAGGELIA",to:"CUS",cust:custOf(c.p),note:"από "+NAMES[V.from]});left-=r}}
-    if(left>0){const m={id:uid(),b,t,u:S.user,ty:V.from==="SUP"?"receive":V.to==="CUS"?"deliver":"move",p:c.p,q:left,f:V.from,to:V.to};if(V.from==="SUP"){m.doc=V.doc;if(dnote)m.note=dnote}addMove(m)}
+    if(left>0){const m={id:uid(),b,t,u:S.user,ty:V.from==="SUP"?"receive":V.to==="CUS"?"deliver":"move",p:c.p,q:left,f:V.from,to:V.to};if(c.man)m.fmt="χειροκίνητα";if(V.from==="SUP"){m.doc=V.doc;if(dnote)m.note=dnote}addMove(m)}
   }
   S.last=[V.from,V.to];V.lastBatch=b;
   V.doneTxt=plural(n,"συσκευή","συσκευές")+" · "+NAMES[V.from]+" → "+NAMES[V.to];
@@ -654,6 +658,8 @@ SCR.admin=()=>{const t=V.at||"new",nn=S.mv.filter(m=>m.nw&&!m.p&&!m.x).length+(S
       (LIVE?'<div class="msg m-info">'+I.info+'<div>Το πέρασμα στο konidas.gr το κάνει ο Claude από τον υπολογιστή του μαγαζιού, με έλεγχο και backup. Εδώ βλέπεις τι εκκρεμεί.</div></div>':"")+(d.length?'<div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Αποθήκη</th><th>Site → νέο</th></tr></thead><tbody>'+d.join("")+'</tbody></table></div>'+(LIVE?'':'<button class="btn btn-ok" data-a="sync">Πέρασε '+plural(pp,"κίνηση","κινήσεις")+' στο site</button>'):'<div class="msg m-ok">'+I.check+'<div>Το site συμφωνεί. Τίποτα για πέρασμα.</div></div>')+
       (!LIVE&&S.bk.length?'<button class="btn btn-bad" data-a="unsync">Αναίρεση τελευταίου περάσματος</button>':"")}
   if(t==="hist"){const all=S.mv.slice().sort((a,b)=>b.t-a.t);h+=all.length?'<div class="list">'+all.map(mvRow).join("")+'</div>':'<div class="empty">Καμία κίνηση ακόμα.</div>'}
+  if(t==="set"){const wb=S.P.filter(p=>p.e||(p.x||[]).length).length,ws=S.P.filter(p=>tot(p.id)>0),wsb=ws.filter(p=>p.e||(p.x||[]).length).length;
+    h+='<div class="msg m-info">'+I.info+'<div><b>Barcode:</b> '+wsb+' από '+ws.length+' συσκευές με απόθεμα τα έχουν ('+Math.round(100*wsb/Math.max(1,ws.length))+'%). Σύνολο site: '+wb+'/'+S.P.length+'. Συμπληρώνονται μόνα τους σε κάθε απογραφή.</div></div>'}
   if(t==="set")h+='<div class="muted">Χρήστης σε αυτό το κινητό: <b>'+esc(S.user)+'</b></div><button class="btn btn-ghost" data-a="voice">Φωνή στο σκανάρισμα: '+(S.voice===false?"κλειστή":"ανοιχτή")+'</button><button class="btn btn-ghost" data-a="go" data-v="who">Αλλαγή χρήστη</button><button class="btn btn-ghost" data-a="copybk">Αντιγραφή αντιγράφου ασφαλείας</button>'+(LIVE?'<button class="btn btn-ghost" data-a="refresh">Ανανέωση από τη βάση</button>':'<button class="btn btn-bad" data-a="reset">Επαναφορά δοκιμής από την αρχή</button>');
   return h};
 function mvRow(m){const p=m.p?P(m.p):{n:m.ty==="count"?"διαφορές στο "+(NAMES[m.f]||""):"Νέα συσκευή "+(m.code||"")},k={move:"Μεταφορά",receive:"Παραλαβή",deliver:"Παράδοση",reserve:"Πώληση",count:"Μέτρηση",link:"Barcode"}[m.ty]||m.ty;
@@ -691,7 +697,7 @@ const A={
   camretry:()=>startCam(),
   photo:()=>photo.click(),
   manual:()=>{V.q="";V.focus=1;go("manual")},
-  manualpick:v=>{const p=P(v);V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(p.e||("#"+p.id),"ΧΕΙΡΟΚΙΝΗΤΑ",p)},
+  manualpick:v=>{const p=P(v);V.scr=V.kind==="count"?"countscan":"scan";lastCode="";seen=null;render();V.manual=1;V.onScan(p.e||("#"+p.id),"ΧΕΙΡΟΚΙΝΗΤΑ",p);V.manual=0},
   usecode:()=>{const c=(V.q||"").trim();V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(c,"ΧΕΙΡΟΚΙΝΗΤΑ")},
   newdev:()=>labelIn.click(),
   forceunk:v=>{V.unknown=v;V.ufmt="";go("unknown")},
