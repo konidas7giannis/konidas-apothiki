@@ -221,9 +221,9 @@ const WH=[
   {id:"PARAGGELIA",n:"Παραγγελία",h:"πουλημένα",virt:1}
 ];
 const NAMES={SUP:"Προμηθευτής",CUS:"Πελάτης",ADJ:"Διόρθωση"};WH.forEach(w=>NAMES[w.id]=w.n);
-const USERS=["Γιάννης","Γιώργος","Μανία","Τσάκος"];
-const ADMIN="Γιάννης",ADMINS=["Γιάννης","Γιώργος","Μανία"];
-const VOC={"Γιάννης":"Γιάννη","Γιώργος":"Γιώργο","Μανία":"Μανία","Τσάκος":"Τσάκο"};
+const USERS=["Γιάννης","Γιώργος","Μάνια","Τσάκος"];
+const ADMIN="Γιάννης",ADMINS=["Γιάννης","Γιώργος","Μάνια"];
+const VOC={"Γιάννης":"Γιάννη","Γιώργος":"Γιώργο","Μάνια":"Μάνια","Τσάκος":"Τσάκο"};
 /* Η διεύθυνση της κοινής βάσης ΔΕΝ υπάρχει στον δημόσιο κώδικα: μπαίνει μία φορά με το QR καταστήματος. */
 const API_RE=/^https:\/\/script\.google\.com\/macros\/s\/[\w-]{20,}\/exec$/;
 let API="";try{API=localStorage.getItem("konidas_api")||""}catch(e){}
@@ -565,6 +565,9 @@ SCR.home=()=>{
   if(d&&d.cart&&d.cart.length){const n=d.cart.reduce((a,c)=>a+c.q,0);
     h+='<div class="resume"><div><b>'+(d.kind==="count"?"Μέτρηση στη μέση · "+esc(NAMES[d.cw]):"Μετακίνηση στη μέση · "+esc(NAMES[d.from])+" → "+esc(NAMES[d.to]))+'</b><div class="muted">'+plural(n,"συσκευή","συσκευές")+' σκαναρισμένες · '+when(d.t)+'. Τίποτα δεν χάθηκε.</div></div><div class="row"><button class="btn btn-gold btn-sm" data-a="resume">Συνέχεια</button><button class="btn btn-ghost btn-sm" data-a="discard">Διαγραφή</button></div></div>'}
   if(S.last&&!(d&&d.cart&&d.cart.length))h+='<button class="quick" data-a="lastroute"><span class="ic" style="display:flex;color:var(--gold)">'+I.truck.replace('<svg','<svg width="26" height="26"')+'</span><span>Ίδια διαδρομή: '+esc(NAMES[S.last[0]])+' → '+esc(NAMES[S.last[1]])+'<small>πάτα και σκάναρε αμέσως</small></span></button>';
+  const t0=new Date();t0.setHours(0,0,0,0);const dk=t0.toDateString();
+  if(hr>=19&&S.eod!==dk){const tm=S.mv.filter(m=>!m.x&&m.t>=t0.getTime()&&m.ty!=="link"),mine=tm.filter(m=>m.u===S.user).length;
+    h+='<div class="resume" style="border-color:var(--gold)"><div><b>Κλείσιμο ημέρας</b><div class="muted">Σκανάρατε ό,τι κινήθηκε σήμερα; Σήμερα: '+plural(tm.length,"κίνηση","κινήσεις")+(tm.length?' (δικές σου '+mine+')':'')+'. Αν κάτι ξέφυγε, πέρασέ το τώρα.</div></div><div class="row"><button class="btn btn-gold btn-sm" data-a="eodok">Ναι, όλα μέσα</button><button class="btn btn-ghost btn-sm" data-a="startmove">Περνάω κάτι</button></div></div>'}
   h+='<div class="actions">'+
    '<button class="act primary" data-a="startmove"><div class="ic">'+I.truck+'</div><div><b>Μετακίνηση</b><span>φόρτωση · παραλαβή · παράδοση</span></div><div class="chev">'+I.chev+'</div></button>'+
    '<button class="act" data-a="startsale"><div class="ic">'+I.tag+'</div><div><b>Πώληση</b><span>το πήρε τώρα ή κράτηση</span></div><div class="chev">'+I.chev+'</div></button>'+
@@ -737,6 +740,7 @@ const A={
   countwh:v=>{V.kind="count";V.cw=v;V.cart=[];V.onScan=countHit;lastCode="";saveDraft();go("countscan")},
   countend:()=>{stopCam();go("countres")},
   countback:()=>go("countscan"),
+  eodok:()=>{const t=new Date();t.setHours(0,0,0,0);S.eod=t.toDateString();save();render();toast("Ευχαριστώ! Καλό βράδυ.")},
   countclose:()=>{clearDraft();go("home")},
   countfix:()=>{const t=Date.now(),b=uid();for(const p of S.P){const sys=lq(p.id,V.cw),c=V.cart.find(x=>x.p===p.id),n=c?c.q:0,d=n-sys;if(d)addMove({id:uid(),b,t,u:S.user,ty:"count",p:p.id,q:Math.abs(d),f:d<0?V.cw:"ADJ",to:d<0?"ADJ":V.cw})}
     V.lastBatch=b;V.doneTxt="Διορθώθηκε το απόθεμα στο "+NAMES[V.cw];clearDraft();chime();go("done")},
