@@ -218,8 +218,9 @@ const WH=[
   {id:"FYLAXI",n:"Φύλαξη",h:"στον προμηθευτή"},{id:"PARAGGELIA",n:"Παραγγελία",h:"πουλημένα",virt:1}
 ];
 const NAMES={SUP:"Προμηθευτής",CUS:"Πελάτης",ADJ:"Διόρθωση"};WH.forEach(w=>NAMES[w.id]=w.n);
-const USERS=["Γιάννης","Υπάλληλος 1","Υπάλληλος 2"];
-const ADMIN="Γιάννης";
+const USERS=["Γιάννης","Γιώργος","Τσάκος"];
+const ADMIN="Γιάννης",ADMINS=["Γιάννης","Γιώργος"];
+const VOC={"Γιάννης":"Γιάννη","Γιώργος":"Γιώργο","Τσάκος":"Τσάκο"};
 const KEY="konidas_apothiki_v3",DAY=864e5;
 
 function seed(){const n=Date.now();return{v:3,
@@ -234,6 +235,7 @@ function seed(){const n=Date.now();return{v:3,
 let S=null,saveFail=false;
 try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}
 if(!S||S.v!==3||!Array.isArray(S.P))S=seed();
+if(S.user&&!["Γιάννης","Γιώργος","Τσάκος"].includes(S.user))S.user=null;
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));if(saveFail){saveFail=false}}catch(e){saveFail=true;toast("Η μνήμη του κινητού γέμισε. Πες το στον Γιάννη.")}}
 
 /* view state (μόνο στη μνήμη) */
@@ -251,7 +253,7 @@ function lq(p,w){let q=sq(p,w);for(const m of pend()){if(m.p!==p)continue;if(m.f
 const tot=p=>WH.reduce((a,w)=>a+(w.virt?0:lq(p,w.id)),0);
 function custOf(p){const r=S.mv.filter(m=>m.p===p&&m.ty==="reserve"&&!m.x).sort((a,b)=>b.t-a.t)[0];return r&&r.cust}
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
-const isAdmin=()=>S.user===ADMIN;
+const isAdmin=()=>ADMINS.includes(S.user);
 const cartN=()=>(V.cart||[]).reduce((a,c)=>a+c.q,0);
 function when(t){const d=new Date(t),n=new Date(),hm=d.toLocaleTimeString("el-GR",{hour:"2-digit",minute:"2-digit"});
   if(d.toDateString()===n.toDateString())return "σήμερα "+hm;
@@ -439,12 +441,12 @@ function go(s,keepMsg){if(!keepMsg)V.msg=null;V.scr=s;render();window.scrollTo(0
 const backBtn=to=>'<button class="back" data-a="go" data-v="'+to+'">'+I.back+'Πίσω</button>';
 
 SCR.who=()=>'<div class="hello"><h1>Καλώς ήρθες</h1><div class="sub">Ποιος είσαι; Το επιλέγεις μία φορά, για να φαίνεται ποιος έκανε κάθε κίνηση.</div></div><div class="actions">'+
-  USERS.map(u=>'<button class="act" data-a="setuser" data-v="'+esc(u)+'"><div class="ic">'+I.user+'</div><div><b>'+esc(u)+'</b><span>'+(u===ADMIN?"ιδιοκτήτης · όλες οι λειτουργίες":"μετακινήσεις & μετρήσεις")+'</span></div><div class="chev">'+I.chev+'</div></button>').join("")+'</div>';
+  USERS.map(u=>'<button class="act" data-a="setuser" data-v="'+esc(u)+'"><div class="ic">'+I.user+'</div><div><b>'+esc(u)+'</b><span>'+(ADMINS.includes(u)?"όλες οι λειτουργίες":"μετακινήσεις & μετρήσεις")+'</span></div><div class="chev">'+I.chev+'</div></button>').join("")+'</div>';
 
 SCR.home=()=>{
   const d=S.draft,hr=new Date().getHours(),greet=hr<12?"Καλημέρα":hr<18?"Καλησπέρα":"Καλησπέρα";
   const first=(S.user||"").split(" ")[0];
-  let h='<div class="hello"><small>'+new Date().toLocaleDateString("el-GR",{weekday:"long",day:"numeric",month:"long"})+'</small><h1>'+greet+(S.user===ADMIN?", Γιάννη":first?", "+esc(S.user):"")+'</h1></div>';
+  let h='<div class="hello"><small>'+new Date().toLocaleDateString("el-GR",{weekday:"long",day:"numeric",month:"long"})+'</small><h1>'+greet+(S.user?", "+esc(VOC[S.user]||S.user):"")+'</h1></div>';
   if(d&&d.cart&&d.cart.length){const n=d.cart.reduce((a,c)=>a+c.q,0);
     h+='<div class="resume"><div><b>'+(d.kind==="count"?"Μέτρηση στη μέση · "+esc(NAMES[d.cw]):"Μετακίνηση στη μέση · "+esc(NAMES[d.from])+" → "+esc(NAMES[d.to]))+'</b><div class="muted">'+plural(n,"συσκευή","συσκευές")+' σκαναρισμένες · '+when(d.t)+'. Τίποτα δεν χάθηκε.</div></div><div class="row"><button class="btn btn-gold btn-sm" data-a="resume">Συνέχεια</button><button class="btn btn-ghost btn-sm" data-a="discard">Διαγραφή</button></div></div>'}
   if(S.last&&!(d&&d.cart&&d.cart.length))h+='<button class="quick" data-a="lastroute"><span class="ic" style="display:flex;color:var(--gold)">'+I.truck.replace('<svg','<svg width="26" height="26"')+'</span><span>Ίδια διαδρομή: '+esc(NAMES[S.last[0]])+' → '+esc(NAMES[S.last[1]])+'<small>πάτα και σκάναρε αμέσως</small></span></button>';
@@ -480,7 +482,7 @@ SCR.unknown=()=>{
   if(!rec&&V.flagKey!==V.unknown+"|"+(V.from||V.cw)){V.flagKey=V.unknown+"|"+(V.from||V.cw);S.unk=S.unk||[];if(!S.unk.some(u=>u.code===V.unknown)){S.unk.push({code:V.unknown,fmt:V.ufmt,t:Date.now(),u:S.user,w:V.from||V.cw});save()}}
   let h='<div class="msg m-warn">'+I.warn+'<div>Διάβασα <b>'+esc(V.unknown)+'</b>'+(V.ufmt?' <span style="opacity:.7">('+esc(V.ufmt)+')</span>':"")+'<br>Δεν υπάρχει ακόμα στις συσκευές μας.</div></div>';
   if(rec)h+='<h1>Είναι καινούρια συσκευή;</h1><div class="sub">Φωτογράφισε την ετικέτα του κουτιού, εκεί που φαίνονται μάρκα και μοντέλο. Μπαίνει στην παραλαβή και ελέγχεται πριν περάσει στο site.</div><button class="btn btn-ok" data-a="newdev">'+I.cam.replace('<svg','<svg width="22" height="22"')+'Φωτογραφία ετικέτας</button>';
-  else h+='<div class="msg m-bad">'+I.x+'<div>Άγνωστη συσκευή δεν '+(V.kind==="count"?"μετριέται":"μετακινείται")+' πριν ελεγχθεί. Άφησέ τη στην άκρη. Ο Γιάννης τη βλέπει στη Διαχείριση.</div></div>';
+  else h+='<div class="msg m-bad">'+I.x+'<div>Άγνωστη συσκευή δεν '+(V.kind==="count"?"μετριέται":"μετακινείται")+' πριν ελεγχθεί. Άφησέ τη στην άκρη. Ο Γιάννης και ο Γιώργος τη βλέπουν στη Διαχείριση.</div></div>';
   if(isAdmin())h+='<h2>Ή είναι συσκευή που ήδη έχουμε;</h2><div class="muted">Σύνδεσέ τη μία φορά και μετά θα την αναγνωρίζει πάντα.</div><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="μοντέλο ή όνομα" autocomplete="off"><div class="list" id="dyn">'+DYN.unknown()+'</div>';
   return h+'<button class="btn btn-ghost" data-a="backscan">Πίσω στο σκανάρισμα</button>';
 };
@@ -517,7 +519,7 @@ SCR.countres=()=>{const w=V.cw;let bad=0;const rows=[];
     rows.push('<tr><td>'+esc(p.n)+'</td><td>'+sys+'</td><td>'+n+'</td><td class="'+(d===0?"r-ok":d<0?"r-bad":"r-w")+'">'+(d===0?"✓":d<0?"λείπουν "+(-d):"+"+d)+'</td></tr>')}
   return '<h1>Αποτέλεσμα · '+esc(NAMES[w])+'</h1>'+(bad?'<div class="msg m-warn">'+I.warn+'<div>'+plural(bad,"διαφορά","διαφορές")+'. Ξαναμέτρησε αυτές πριν διορθώσεις.</div></div>':'<div class="msg m-ok">'+I.check+'<div>Όλα συμφωνούν με το σύστημα.</div></div>')+
   '<div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Σύστημα</th><th>Μέτρησα</th><th></th></tr></thead><tbody>'+rows.join("")+'</tbody></table></div>'+
-  '<div class="dock">'+(bad?(isAdmin()?'<button class="btn btn-ok" data-a="countfix">Διόρθωσε το απόθεμα</button>':'<button class="btn btn-ok" data-a="countsend">Στείλε στον Γιάννη</button>'):"")+'<button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button><button class="btn btn-ghost" data-a="countclose">Κλείσιμο</button></div>'};
+  '<div class="dock">'+(bad?(isAdmin()?'<button class="btn btn-ok" data-a="countfix">Διόρθωσε το απόθεμα</button>':'<button class="btn btn-ok" data-a="countsend">Στείλε για έλεγχο</button>'):"")+'<button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button><button class="btn btn-ghost" data-a="countclose">Κλείσιμο</button></div>'};
 
 /* Πού είναι */
 SCR.find=()=>backBtn("home")+'<h1>Πού είναι;</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="μοντέλο, όνομα ή barcode" autocomplete="off"><div class="list" id="dyn">'+DYN.find()+'</div>';
@@ -595,7 +597,7 @@ const A={
   countclose:()=>{clearDraft();go("home")},
   countfix:()=>{const t=Date.now(),b=uid();for(const p of S.P){const sys=lq(p.id,V.cw),c=V.cart.find(x=>x.p===p.id),n=c?c.q:0,d=n-sys;if(d)S.mv.push({id:uid(),b,t,u:S.user,ty:"count",p:p.id,q:Math.abs(d),f:d<0?V.cw:"ADJ",to:d<0?"ADJ":V.cw})}
     V.lastBatch=b;V.doneTxt="Διορθώθηκε το απόθεμα στο "+NAMES[V.cw];clearDraft();chime();go("done")},
-  countsend:()=>{S.mv.push({id:uid(),t:Date.now(),u:S.user,ty:"count",p:null,q:0,f:V.cw,to:V.cw,note:"μέτρηση με διαφορές για έλεγχο"});clearDraft();go("home");toast("Στάλθηκε στον Γιάννη.")},
+  countsend:()=>{S.mv.push({id:uid(),t:Date.now(),u:S.user,ty:"count",p:null,q:0,f:V.cw,to:V.cw,note:"μέτρηση με διαφορές για έλεγχο"});clearDraft();go("home");toast("Στάλθηκε για έλεγχο στον Γιάννη και τον Γιώργο.")},
   startfind:()=>{V.q="";V.focus=1;go("find")},
   findpick:v=>{V.fp=v;go("prod")},
   at:v=>{V.at=v;V.msg=null;render()},
