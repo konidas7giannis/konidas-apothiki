@@ -258,6 +258,7 @@ function applyOp(st,o){
   else if(o.op==="addProduct"){if(!st.P.some(x=>x.id===String(o.p.id)))st.P.push({id:String(o.p.id),n:o.p.n,m:o.p.code||"",e:o.p.ean||"",x:[]})}
   else if(o.op==="addUnk"){st.unk=st.unk||[];if(!st.unk.some(u=>u.code===o.u.code))st.unk.push(o.u)}
   else if(o.op==="delUnk"){st.unk=(st.unk||[]).filter(u=>u.code!==o.code)}
+  else if(o.op==="eod"){st.eod=st.eod||{};st.eod[o.d]=st.eod[o.d]||(S.user||"")}
   else if(o.op==="sync"||o.op==="unsync"){st.mv.forEach(m=>{if(o.ids.includes(m.id)){if(o.op==="sync")m.syn=Date.now();else delete m.syn}});st.site=o.site}
 }
 function OP(o){applyOp(S,o);codeIdx=null;if(LIVE){const w=JSON.parse(JSON.stringify(o));if(w.op==="addProduct")w.p={id:o.p.id,n:o.p.n,code:o.p.code||"",ean:o.p.ean||""};w.oid=uid();S.q.push(w);flushSoon()}save()}
@@ -270,7 +271,7 @@ function absorb(r){codeIdx=null;
   if(r.products)S.P=r.products.map(p=>({id:String(p.id),n:p.n||"",m:p.code||"",e:p.ean||"",x:p.x?String(p.x).split(",").filter(Boolean):[]}));
   const site={};Object.keys(r.site||{}).forEach(id=>{site[id]={};Object.keys(r.site[id]).forEach(w=>{const q=Number(r.site[id][w]);if(q)site[id][w]=q})});S.site=site;
   S.mv=(r.moves||[]).map(normMove);S.unk=(r.unk||[]).map(u=>Object.assign({},u,{t:Number(u.t)}));
-  S.ver=r.ver;S.pver=r.pver;S.role=r.role;
+  S.ver=r.ver;S.pver=r.pver;S.role=r.role;S.eod=r.eod||{};
   for(const o of S.q)applyOp(S,o); /* ό,τι δεν έχει φτάσει ακόμα στη βάση */
 }
 async function api(method,params,body){
@@ -558,6 +559,23 @@ function setupHit(code){code=String(code||"").trim();if(API_RE.test(code)){try{l
 DYN.setup=()=>msgHTML();
 SCR.pin=()=>'<button class="back" data-a="go" data-v="who">'+I.back+'Πίσω</button><h1>PIN για '+esc(V.pu)+'</h1><div class="sub">4 ψηφία. Το βάζεις μία φορά σε αυτό το κινητό.</div><div style="display:flex;gap:12px;justify-content:center;margin:8px 0">'+[0,1,2,3].map(i=>'<span style="width:18px;height:18px;border-radius:50%;border:2px solid var(--navy);background:'+((V.pinIn||"").length>i?"var(--navy)":"transparent")+'"></span>').join("")+'</div>'+msgHTML()+'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">'+["1","2","3","4","5","6","7","8","9","","0","del"].map(k=>k?'<button class="btn btn-ghost" style="min-height:64px;font:800 24px var(--fd)" data-a="pk" data-v="'+k+'">'+(k==="del"?"⌫":k)+'</button>':'<span></span>').join("")+'</div>';
 async function tryPin(){const u=V.pu,p=V.pinIn;V.msg=["info","Έλεγχος…"];render();try{const r=await fetch(API+"?"+new URLSearchParams({a:"ver",user:u,pin:p})).then(x=>x.json());if(r.ok){S.user=u;S.pin=p;S.role=r.role;S.ver="";S.pver="";save();V.msg=null;go("home");toast("Φόρτωση προϊόντων…");await pull(true)}else{V.pinIn="";V.msg=["bad","Λάθος PIN. Δοκίμασε ξανά."];render()}}catch(e){V.pinIn="";V.msg=["bad","Δεν υπάρχει σύνδεση. Δοκίμασε όταν έχεις σήμα."];render()}}
+/* ---------- κλείσιμο ημέρας ---------- */
+const CLOSE={1:"14:30",2:"21:00",3:"14:30",4:"21:00",5:"21:00",6:"14:30"}; /* ώρα που κλείνει το μαγαζί (Κυρ. κλειστά) */
+const dKey=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const dayMoves=k=>S.mv.filter(m=>!m.x&&m.ty!=="link"&&m.ty!=="count"&&dKey(new Date(m.t))===k).sort((a,b)=>a.t-b.t);
+function eodDue(){const n=new Date(),c=CLOSE[n.getDay()];if(!c)return false;const[h,mi]=c.split(":").map(Number);const t=new Date(n);t.setHours(h,mi-15,0,0);return n>=t}
+function eodLine(m){const p=S.P.find(x=>x.id===m.p);const t=new Date(m.t);return '<div style="padding:6px 0;border-top:1px solid #0001;font-size:14px"><b>'+m.q+'× '+esc(p?p.n:(m.code||"νέα συσκευή"))+'</b><br><span class="muted">'+String(t.getHours()).padStart(2,"0")+":"+String(t.getMinutes()).padStart(2,"0")+' · '+esc(m.u||"")+' · '+esc(NAMES[m.f]||m.f||"")+' → '+esc(NAMES[m.to]||m.to||"")+'</span></div>'}
+function eodCard(){
+  const E=S.eod||{},today=dKey(new Date());let k=null,big=false;
+  if(eodDue()&&!E[today]){k=today;big=true}
+  else{for(let i=1;i<=7;i++){const d=new Date();d.setDate(d.getDate()-i);const kk=dKey(d);if(dayMoves(kk).length){if(!E[kk])k=kk;break}}}
+  if(!k)return "";
+  const ms=dayMoves(k),lim=V.eodAll?ms.length:5;
+  const title=big?"Κλείσιμο ημέρας":"Δεν επιβεβαιώθηκε: "+new Date(k+"T12:00").toLocaleDateString("el-GR",{weekday:"long",day:"numeric",month:"numeric"});
+  const sub=big?(ms.length?"Κοίτα τη λίστα. Λείπει κάτι που έφυγε ή ήρθε σήμερα;":"Δεν πέρασε καμία κίνηση σήμερα. Σίγουρα δεν κινήθηκε τίποτα;"):"Ρίξε μια ματιά όταν βρεις χρόνο.";
+  return '<div class="resume" style="border-color:var(--gold);display:block"><b>'+title+'</b> <span class="badge gold">'+plural(ms.length,"κίνηση","κινήσεις")+'</span><div class="muted" style="margin:4px 0 6px">'+sub+'</div>'+
+    ms.slice(0,lim).map(eodLine).join("")+(ms.length>5?'<button class="btn btn-ghost btn-sm" style="margin-top:6px" data-a="eodall">'+(V.eodAll?"Λιγότερα":"Όλες ("+ms.length+")")+'</button>':"")+
+    '<div class="row" style="margin-top:10px"><button class="btn btn-gold btn-sm" data-a="eodok" data-v="'+k+'">Ναι, όλα μέσα</button><button class="btn btn-ghost btn-sm" data-a="startmove">Λείπει κάτι</button></div></div>'}
 SCR.home=()=>{
   const d=S.draft,hr=new Date().getHours(),greet=hr<12?"Καλημέρα":hr<18?"Καλησπέρα":"Καλησπέρα";
   const first=(S.user||"").split(" ")[0];
@@ -565,9 +583,7 @@ SCR.home=()=>{
   if(d&&d.cart&&d.cart.length){const n=d.cart.reduce((a,c)=>a+c.q,0);
     h+='<div class="resume"><div><b>'+(d.kind==="count"?"Μέτρηση στη μέση · "+esc(NAMES[d.cw]):"Μετακίνηση στη μέση · "+esc(NAMES[d.from])+" → "+esc(NAMES[d.to]))+'</b><div class="muted">'+plural(n,"συσκευή","συσκευές")+' σκαναρισμένες · '+when(d.t)+'. Τίποτα δεν χάθηκε.</div></div><div class="row"><button class="btn btn-gold btn-sm" data-a="resume">Συνέχεια</button><button class="btn btn-ghost btn-sm" data-a="discard">Διαγραφή</button></div></div>'}
   if(S.last&&!(d&&d.cart&&d.cart.length))h+='<button class="quick" data-a="lastroute"><span class="ic" style="display:flex;color:var(--gold)">'+I.truck.replace('<svg','<svg width="26" height="26"')+'</span><span>Ίδια διαδρομή: '+esc(NAMES[S.last[0]])+' → '+esc(NAMES[S.last[1]])+'<small>πάτα και σκάναρε αμέσως</small></span></button>';
-  const t0=new Date();t0.setHours(0,0,0,0);const dk=t0.toDateString();
-  if(hr>=19&&S.eod!==dk){const tm=S.mv.filter(m=>!m.x&&m.t>=t0.getTime()&&m.ty!=="link"),mine=tm.filter(m=>m.u===S.user).length;
-    h+='<div class="resume" style="border-color:var(--gold)"><div><b>Κλείσιμο ημέρας</b><div class="muted">Σκανάρατε ό,τι κινήθηκε σήμερα; Σήμερα: '+plural(tm.length,"κίνηση","κινήσεις")+(tm.length?' (δικές σου '+mine+')':'')+'. Αν κάτι ξέφυγε, πέρασέ το τώρα.</div></div><div class="row"><button class="btn btn-gold btn-sm" data-a="eodok">Ναι, όλα μέσα</button><button class="btn btn-ghost btn-sm" data-a="startmove">Περνάω κάτι</button></div></div>'}
+  h+=eodCard();
   h+='<div class="actions">'+
    '<button class="act primary" data-a="startmove"><div class="ic">'+I.truck+'</div><div><b>Μετακίνηση</b><span>φόρτωση · παραλαβή · παράδοση</span></div><div class="chev">'+I.chev+'</div></button>'+
    '<button class="act" data-a="startsale"><div class="ic">'+I.tag+'</div><div><b>Πώληση</b><span>το πήρε τώρα ή κράτηση</span></div><div class="chev">'+I.chev+'</div></button>'+
@@ -740,7 +756,8 @@ const A={
   countwh:v=>{V.kind="count";V.cw=v;V.cart=[];V.onScan=countHit;lastCode="";saveDraft();go("countscan")},
   countend:()=>{stopCam();go("countres")},
   countback:()=>go("countscan"),
-  eodok:()=>{const t=new Date();t.setHours(0,0,0,0);S.eod=t.toDateString();save();render();toast("Ευχαριστώ! Καλό βράδυ.")},
+  eodok:v=>{OP({op:"eod",d:v});V.eodAll=false;render();toast("Ευχαριστώ! Όλα καταγεγραμμένα.")},
+  eodall:()=>{V.eodAll=!V.eodAll;render()},
   countclose:()=>{clearDraft();go("home")},
   countfix:()=>{const t=Date.now(),b=uid();for(const p of S.P){const sys=lq(p.id,V.cw),c=V.cart.find(x=>x.p===p.id),n=c?c.q:0,d=n-sys;if(d)addMove({id:uid(),b,t,u:S.user,ty:"count",p:p.id,q:Math.abs(d),f:d<0?V.cw:"ADJ",to:d<0?"ADJ":V.cw})}
     V.lastBatch=b;V.doneTxt="Διορθώθηκε το απόθεμα στο "+NAMES[V.cw];clearDraft();chime();go("done")},
