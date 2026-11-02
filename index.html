@@ -259,7 +259,8 @@ function applyOp(st,o){
   else if(o.op==="addUnk"){st.unk=st.unk||[];if(!st.unk.some(u=>u.code===o.u.code))st.unk.push(o.u)}
   else if(o.op==="delUnk"){st.unk=(st.unk||[]).filter(u=>u.code!==o.code)}
   else if(o.op==="eod"){st.eod=st.eod||{};st.eod[o.d]=st.eod[o.d]||(S.user||"")}
-  else if(o.op==="sync"||o.op==="unsync"){st.mv.forEach(m=>{if(o.ids.includes(m.id)){if(o.op==="sync")m.syn=Date.now();else delete m.syn}});st.site=o.site}
+  else if(o.op==="sync"||o.op==="unsync"){st.mv.forEach(m=>{if(o.ids.includes(m.id)){if(o.op==="sync")m.syn=Date.now();else delete m.syn}});st.site=Object.assign({},st.site,o.site)}
+  else if(o.op==="setEan"){const p=st.P.find(x=>x.id===String(o.pid));if(p&&!p.e){p.e=String(o.code);p.x=(p.x||[]).filter(c=>c!==String(o.code))}}
 }
 function OP(o){applyOp(S,o);codeIdx=null;if(LIVE){const w=JSON.parse(JSON.stringify(o));if(w.op==="addProduct")w.p={id:o.p.id,n:o.p.n,code:o.p.code||"",ean:o.p.ean||""};w.oid=uid();S.q.push(w);flushSoon()}save()}
 const addMove=m=>OP({op:"addMove",m});
@@ -689,7 +690,7 @@ SCR.admin=()=>{const t=V.at||"new",nn=S.mv.filter(m=>m.nw&&!m.p&&!m.x).length+(S
        '<h2>Πουλημένα που δεν παραδόθηκαν</h2>'+(rs.length?'<div class="list">'+rs.map(p=>'<div class="prow"><div><b>'+esc(p.n)+'</b><small>'+esc(custOf(p.id)||"")+'</small></div><span class="n">'+lq(p.id,"PARAGGELIA")+'</span></div>').join("")+'</div>':'<div class="msg m-ok">'+I.check+'<div>Τίποτα σε εκκρεμότητα.</div></div>')}
   if(t==="site"){const d=[];for(const p of S.P)for(const w of WH.filter(w=>!w.app)){const a=sq(p.id,w.id),b=lq(p.id,w.id);if(a!==b)d.push('<tr><td>'+esc(p.n)+'</td><td>'+esc(w.n)+'</td><td>'+a+' → <b>'+b+'</b></td></tr>')}
     h+='<div class="muted">Έτσι θα είναι το κουμπί μέσα στο admin του konidas.gr. Αλλάζει <b>μόνο</b> νούμερα αποθέματος ανά αποθήκη: όχι τιμές, τίτλους ή χαρακτηριστικά.</div>'+
-      (LIVE?'<div class="msg m-info">'+I.info+'<div>Το πέρασμα στο konidas.gr το κάνει ο Claude από τον υπολογιστή του μαγαζιού, με έλεγχο και backup. Εδώ βλέπεις τι εκκρεμεί.</div></div>':"")+(d.length?'<div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Αποθήκη</th><th>Site → νέο</th></tr></thead><tbody>'+d.join("")+'</tbody></table></div>'+(LIVE?'':'<button class="btn btn-ok" data-a="sync">Πέρασε '+plural(pp,"κίνηση","κινήσεις")+' στο site</button>'):'<div class="msg m-ok">'+I.check+'<div>Το site συμφωνεί. Τίποτα για πέρασμα.</div></div>')+
+      (LIVE?'<div class="msg m-info">'+I.info+'<div>Το πέρασμα στο konidas.gr γίνεται από τον υπολογιστή: admin του konidas.gr → σελιδοδείκτης «Πέρασε κινήσεις» → Έγκριση. Εδώ βλέπεις τι εκκρεμεί.</div></div>':"")+(d.length?'<div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Αποθήκη</th><th>Site → νέο</th></tr></thead><tbody>'+d.join("")+'</tbody></table></div>'+(LIVE?'':'<button class="btn btn-ok" data-a="sync">Πέρασε '+plural(pp,"κίνηση","κινήσεις")+' στο site</button>'):'<div class="msg m-ok">'+I.check+'<div>Το site συμφωνεί. Τίποτα για πέρασμα.</div></div>')+
       (!LIVE&&S.bk.length?'<button class="btn btn-bad" data-a="unsync">Αναίρεση τελευταίου περάσματος</button>':"")}
   if(t==="hist"){const all=S.mv.slice().sort((a,b)=>b.t-a.t);h+=all.length?'<div class="list">'+all.map(mvRow).join("")+'</div>':'<div class="empty">Καμία κίνηση ακόμα.</div>'}
   if(t==="set"){const wb=S.P.filter(p=>p.e||(p.x||[]).length).length,ws=S.P.filter(p=>tot(p.id)>0),wsb=ws.filter(p=>p.e||(p.x||[]).length).length;
