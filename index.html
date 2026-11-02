@@ -257,13 +257,13 @@ function applyOp(st,o){
   else if(o.op==="delUnk"){st.unk=(st.unk||[]).filter(u=>u.code!==o.code)}
   else if(o.op==="sync"||o.op==="unsync"){st.mv.forEach(m=>{if(o.ids.includes(m.id)){if(o.op==="sync")m.syn=Date.now();else delete m.syn}});st.site=o.site}
 }
-function OP(o){applyOp(S,o);if(LIVE){const w=JSON.parse(JSON.stringify(o));if(w.op==="addProduct")w.p={id:o.p.id,n:o.p.n,code:o.p.code||"",ean:o.p.ean||""};w.oid=uid();S.q.push(w);flushSoon()}save()}
+function OP(o){applyOp(S,o);codeIdx=null;if(LIVE){const w=JSON.parse(JSON.stringify(o));if(w.op==="addProduct")w.p={id:o.p.id,n:o.p.n,code:o.p.code||"",ean:o.p.ean||""};w.oid=uid();S.q.push(w);flushSoon()}save()}
 const addMove=m=>OP({op:"addMove",m});
 /* ---------- επικοινωνία με τη βάση ---------- */
 let syncing=false,flushT=null,lastPull=0;
 const num=v=>v===undefined||v===""?undefined:Number(v);
 function normMove(m){const o=Object.assign({},m);["t","q","syn","x","invAt","nw"].forEach(k=>{if(o[k]!==undefined)o[k]=num(o[k]);if(o[k]===undefined)delete o[k]});if(o.p==="")delete o.p;return o}
-function absorb(r){
+function absorb(r){codeIdx=null;
   if(r.products)S.P=r.products.map(p=>({id:String(p.id),n:p.n||"",m:p.code||"",e:p.ean||"",x:p.x?String(p.x).split(",").filter(Boolean):[]}));
   const site={};Object.keys(r.site||{}).forEach(id=>{site[id]={};Object.keys(r.site[id]).forEach(w=>{const q=Number(r.site[id][w]);if(q)site[id][w]=q})});S.site=site;
   S.mv=(r.moves||[]).map(normMove);S.unk=(r.unk||[]).map(u=>Object.assign({},u,{t:Number(u.t)}));
@@ -311,7 +311,13 @@ const V={scr:SETUP?"setup":S.user&&(!LIVE||S.pin)?"home":"who"};
    ========================================================= */
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const P=id=>S.P.find(p=>p.id===id);
-const byCode=c=>S.P.find(p=>p.e===c||(p.x||[]).includes(c));
+/* Αναγνώριση: barcode του site, barcode που έχει «μάθει» η εφαρμογή, ή ο κωδικός προμηθευτή (π.χ. 12NC της Whirlpool) */
+const normC=c=>String(c||"").replace(/[\s.\-\/]/g,"").replace(/^0+(?=\d{8,})/,"").toUpperCase();
+let codeIdx=null,codeIdxN=-1;
+function byCode(c){const k=normC(c);if(!k)return null;
+  if(!codeIdx||codeIdxN!==S.P.length+S.P.reduce((a,p)=>a+(p.x||[]).length,0)){codeIdx=new Map();codeIdxN=S.P.length+S.P.reduce((a,p)=>a+(p.x||[]).length,0);
+    for(const p of S.P){[p.e,...(p.x||[])].forEach(x=>{const n=normC(x);if(n&&!codeIdx.has(n))codeIdx.set(n,p)});const m=normC(p.m);if(m&&m.length>=6&&!codeIdx.has("m:"+m))codeIdx.set("m:"+m,p)}}
+  return codeIdx.get(k)||codeIdx.get("m:"+k)||null}
 const pend=()=>S.mv.filter(m=>!m.syn&&!m.x&&m.p);
 const sq=(p,w)=>(S.site[p]&&S.site[p][w])||0;
 function lq(p,w){let q=sq(p,w);for(const m of pend()){if(m.p!==p)continue;if(m.f===w)q-=m.q;if(m.to===w)q+=m.q}return q}
@@ -448,11 +454,11 @@ function avail(pid,need){
   else if(here===0)why+="<br>Έλεγξε από ποια αποθήκη το πήρες.";
   return{ok:false,why};
 }
-function addHit(code,fmt){
-  const p=byCode(code);
+function addHit(code,fmt,direct){
+  const p=direct||byCode(code);
   if(!p){
     if(V.cart.some(c=>c.nw&&c.code===code)){beepBad();fx(false);V.msg=["warn","Αυτή η νέα συσκευή είναι ήδη στη λίστα. Για δεύτερη ίδια πάτα +."];paint();return}
-    if(!isRetail(fmt)&&fmt!=="ΧΕΙΡΟΚΙΝΗΤΑ"){beepBad();fx(false);V.msg=["warn","Διάβασα <b>"+esc(code)+"</b> ("+esc(fmt)+"). Μοιάζει με σειριακό ή εσωτερικό κωδικό. Σκάναρε το barcode με τα 13 ψηφία (EAN) στην ετικέτα του κουτιού."];paint();return}
+    if(!isRetail(fmt)&&fmt!=="ΧΕΙΡΟΚΙΝΗΤΑ"){beepBad();fx(false);V.msg=["warn","Διάβασα <b>"+esc(code)+"</b> ("+esc(fmt)+"). Μοιάζει με σειριακό ή εσωτερικό κωδικό. Σκάναρε το barcode με τα 13 ψηφία (EAN) στην ετικέτα του κουτιού."+(isAdmin()?' <button class="btn btn-ghost btn-sm" data-a="forceunk" data-v="'+esc(code)+'">Είναι ο κωδικός της συσκευής</button>':"")];paint();return}
     beepBad();fx(false);V.unknown=code;V.ufmt=fmt;go("unknown");return}
   const c=V.cart.find(x=>x.p===p.id),have=c?c.q:0,a=avail(p.id,have+1);
   if(!a.ok){beepBad();fx(false);V.msg=["bad",a.why];paint();return}
@@ -461,8 +467,8 @@ function addHit(code,fmt){
   V.msg=["ok","<b>"+esc(p.n)+"</b>"+(c?" · τώρα "+c.q:"")+(a.res?" · κράτηση "+esc(a.res):"")];
   saveDraft();paint();
 }
-function countHit(code,fmt){
-  const p=byCode(code);
+function countHit(code,fmt,direct){
+  const p=direct||byCode(code);
   if(!p){if(!isRetail(fmt)&&fmt!=="ΧΕΙΡΟΚΙΝΗΤΑ"){beepBad();fx(false);V.msg=["warn","Διάβασα <b>"+esc(code)+"</b> ("+esc(fmt)+"). Μοιάζει με σειριακό κωδικό. Σκάναρε το EAN με τα 13 ψηφία."];paint();return}beepBad();fx(false);V.unknown=code;V.ufmt=fmt;go("unknown");return}
   beepOk();fx(true);const c=V.cart.find(x=>x.p===p.id);if(c)c.q++;else V.cart.unshift({p:p.id,q:1});V.fresh=p.id;
   V.msg=["ok","<b>"+esc(p.n)+"</b> · "+(c?c.q:1)];saveDraft();paint();
@@ -553,7 +559,7 @@ SCR.unknown=()=>{
   let h='<div class="msg m-warn">'+I.warn+'<div>Διάβασα <b>'+esc(V.unknown)+'</b>'+(V.ufmt?' <span style="opacity:.7">('+esc(V.ufmt)+')</span>':"")+'<br>Δεν υπάρχει ακόμα στις συσκευές μας.</div></div>';
   if(rec)h+='<h1>Είναι καινούρια συσκευή;</h1><div class="sub">Φωτογράφισε την ετικέτα του κουτιού, εκεί που φαίνονται μάρκα και μοντέλο. Μπαίνει στην παραλαβή και ελέγχεται πριν περάσει στο site.</div><button class="btn btn-ok" data-a="newdev">'+I.cam.replace('<svg','<svg width="22" height="22"')+'Φωτογραφία ετικέτας</button>';
   else h+='<div class="msg m-bad">'+I.x+'<div>Άγνωστη συσκευή δεν '+(V.kind==="count"?"μετριέται":"μετακινείται")+' πριν ελεγχθεί. Άφησέ τη στην άκρη. Ο Γιάννης και ο Γιώργος τη βλέπουν στη Διαχείριση.</div></div>';
-  if(isAdmin())h+='<h2>Ή είναι συσκευή που ήδη έχουμε;</h2><div class="muted">Σύνδεσέ τη μία φορά και μετά θα την αναγνωρίζει πάντα.</div><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="μοντέλο ή όνομα" autocomplete="off"><div class="list" id="dyn">'+DYN.unknown()+'</div>';
+  if(isAdmin())h+='<h2>Είναι συσκευή που έχουμε στο site;</h2><div class="muted">Πολλά προϊόντα του site δεν έχουν ακόμα barcode. Γράψε το μοντέλο (π.χ. OMR58), διάλεξέ το και από εκεί και πέρα θα το αναγνωρίζει πάντα, σε όλα τα κινητά.</div><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="μοντέλο ή όνομα" autocomplete="off"><div class="list" id="dyn">'+DYN.unknown()+'</div>';
   return h+'<button class="btn btn-ghost" data-a="backscan">Πίσω στο σκανάρισμα</button>';
 };
 DYN.unknown=()=>{const q=(V.q||"").toLowerCase();return S.P.filter(p=>!q||(p.n+" "+p.m).toLowerCase().includes(q)).slice(0,30).map(p=>'<button class="prow" data-a="link" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+'</small></div>'+I.chev+'</button>').join("")};
@@ -649,10 +655,11 @@ const A={
   camretry:()=>startCam(),
   photo:()=>photo.click(),
   manual:()=>{V.q="";V.focus=1;go("manual")},
-  manualpick:v=>{const p=P(v);V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(p.e,"ΧΕΙΡΟΚΙΝΗΤΑ")},
+  manualpick:v=>{const p=P(v);V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(p.e||("#"+p.id),"ΧΕΙΡΟΚΙΝΗΤΑ",p)},
   usecode:()=>{const c=(V.q||"").trim();V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(c,"ΧΕΙΡΟΚΙΝΗΤΑ")},
   newdev:()=>labelIn.click(),
-  link:v=>{linkCode(v,V.unknown);save();V.q="";V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(V.unknown,V.ufmt)},
+  forceunk:v=>{V.unknown=v;V.ufmt="";go("unknown")},
+  link:v=>{linkCode(v,V.unknown);save();V.q="";V.scr=V.kind==="count"?"countscan":"scan";lastCode="";render();V.onScan(V.unknown,V.ufmt,P(v));toast("Συνδέθηκε. Από τώρα το αναγνωρίζουν όλα τα κινητά.")},
   doc:v=>{V.doc=v;V.msg=null;saveDraft();render()},
   commit:commitMove,
   undobatch:()=>{OP({op:"cancelBatch",b:V.lastBatch});go("home");toast("Αναιρέθηκε. Δεν άλλαξε τίποτα.")},
