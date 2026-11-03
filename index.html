@@ -109,6 +109,7 @@ h2{font:700 16px var(--fd);margin:4px 0 0;color:var(--navy)}
 /* camera */
 .cam{position:relative;background:#000;border-radius:20px;overflow:hidden;aspect-ratio:16/9;box-shadow:var(--shadow)}
 .cam video{width:100%;height:100%;object-fit:cover;display:block}
+.cam .torch{position:absolute;top:10px;right:10px;z-index:4;border:0;border-radius:999px;padding:9px 14px;font:700 14px Inter,sans-serif;background:rgba(0,0,0,.55);color:#fff}.cam .torch.on{background:var(--gold);color:var(--navy)}
 .cam .frame{position:absolute;left:7%;right:7%;top:20%;bottom:20%;border-radius:14px;box-shadow:0 0 0 2000px rgba(0,0,0,.35)}
 .cam .frame::before,.cam .frame::after{content:"";position:absolute;inset:0;border-radius:14px;border:3px solid rgba(255,255,255,.9);-webkit-mask:linear-gradient(#000 0 0) top left/26px 26px no-repeat,linear-gradient(#000 0 0) top right/26px 26px no-repeat,linear-gradient(#000 0 0) bottom left/26px 26px no-repeat,linear-gradient(#000 0 0) bottom right/26px 26px no-repeat;mask:linear-gradient(#000 0 0) top left/26px 26px no-repeat,linear-gradient(#000 0 0) top right/26px 26px no-repeat,linear-gradient(#000 0 0) bottom left/26px 26px no-repeat,linear-gradient(#000 0 0) bottom right/26px 26px no-repeat}
 .cam .laser{position:absolute;left:12%;right:12%;top:50%;height:2px;background:var(--gold);box-shadow:0 0 12px var(--gold)}
@@ -434,6 +435,7 @@ async function startCam(){
   vid.srcObject=stream;vid.setAttribute("playsinline","");vid.muted=true;
   try{await vid.play()}catch(e){}
   try{const tr=stream.getVideoTracks()[0],cap=tr.getCapabilities&&tr.getCapabilities();if(cap&&cap.focusMode&&cap.focusMode.includes("continuous"))await tr.applyConstraints({advanced:[{focusMode:"continuous"}]})}catch(e){}
+  try{const tr=stream.getVideoTracks()[0],cap=tr.getCapabilities&&tr.getCapabilities();const b=document.getElementById("torchbtn");if(b){if(cap&&cap.torch){b.hidden=false;if(V.torch)await tr.applyConstraints({advanced:[{torch:true}]})}else b.hidden=true}}catch(e){}
   V.camState="on";paintCam();
   try{getDetector()}catch(e){V.camState="nolib";paintCam();return}
   scanning=true;loop(vid);
@@ -475,7 +477,7 @@ function hit(code,fmt){
 }
 const fmtLabel=f=>String(f||"").replace(/_/g,"-").toUpperCase();
 function fx(ok){const f=document.getElementById("fx");if(!f)return;f.className="fx "+(ok?"g":"r");requestAnimationFrame(()=>setTimeout(()=>f.className="fx",60))}
-function camHTML(){return '<div class="cam" id="cam"><video id="vid" playsinline muted autoplay></video><div class="frame"></div><div class="laser"></div><div class="hint">Βάλε το barcode μέσα στο πλαίσιο</div><div class="fx" id="fx"></div><div class="state hidden" id="camstate"></div></div>'+(V.scr==="setup"?"":'<button class="linkbtn" data-a="manual">Δεν διαβάζεται; Γράψε τον κωδικό</button>')}
+function camHTML(){return '<div class="cam" id="cam"><video id="vid" playsinline muted autoplay></video><div class="frame"></div><div class="laser"></div><div class="hint">Βάλε το barcode μέσα στο πλαίσιο</div><div class="fx" id="fx"></div><button id="torchbtn" hidden class="torch'+(V.torch?" on":"")+'" data-a="torch" aria-label="Φακός">'+(V.torch?"🔦 Φακός ανοιχτός":"🔦 Φακός")+'</button><div class="state hidden" id="camstate"></div></div>'+(V.scr==="setup"?"":'<button class="linkbtn" data-a="manual">Δεν διαβάζεται; Γράψε τον κωδικό</button>')}
 function paintCam(){const s=document.getElementById("camstate");if(!s)return;const st=V.camState;
   if(st==="on"){s.classList.add("hidden");return}
   s.classList.remove("hidden");
@@ -817,7 +819,7 @@ SCR.countres=()=>{const w=V.cw;
   (acb.length?'<div class="msg m-warn">'+I.warn+'<div><b>Κλιματιστικά χωρίς ζευγάρι:</b> '+acb.map(c=>esc(modelOf(P(c.p)))).join(", ")+'. Αν λείπει κουτί, γύρνα πίσω και σκάναρέ το.</div></div>':"")+
   (bad?'<h2>Διαφορές σε όσα μέτρησες ('+bad+')</h2><div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Σύστημα</th><th>Μέτρησα</th><th></th></tr></thead><tbody>'+rows.join("")+'</tbody></table></div>':"")+
   (miss.length?'<details class="msg m-info" style="display:block"><summary style="font-weight:600">'+plural(miss.length,"είδος","είδη")+' της λίστας δεν μετρήθηκαν · δεν αλλάζουν</summary><div style="margin-top:6px;font-weight:500">'+miss.map(p=>esc(modelOf(p))+' ('+lq(p.id,w)+')').join(" · ")+'</div></details>':"")+
-  '<div class="dock">'+(bad?'<button class="btn btn-ok" data-a="countfix" data-v="seen">Διόρθωσε '+plural(bad,"διαφορά","διαφορές")+' · μόνο όσα μέτρησα</button>':'<button class="btn btn-ok" data-a="countclose">Όλα σωστά · κλείσιμο</button>')+'<button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button>'+(full&&miss.length?'<button class="btn btn-bad btn-sm" data-a="countfix" data-v="all">Μέτρησα ΟΛΗ την αποθήκη · μηδένισε τα '+miss.length+' που δεν βρήκα</button>':"")+'</div>'};
+  '<div class="dock">'+(bad?'<button class="btn btn-ok" data-a="countfix" data-v="seen">Διόρθωσε '+plural(bad,"διαφορά","διαφορές")+' · μόνο όσα μέτρησα</button>':'<button class="btn btn-ok" data-a="countclose">Όλα σωστά · κλείσιμο</button>')+'<button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button>'+(bad?'<button class="btn btn-ghost" data-a="countclose">Μόνο έλεγχος · κλείσιμο χωρίς αλλαγές</button>':'')+(full&&miss.length?'<button class="btn btn-bad btn-sm" data-a="countfix" data-v="all">Μέτρησα ΟΛΗ την αποθήκη · μηδένισε τα '+miss.length+' που δεν βρήκα</button>':"")+'</div>'};
 
 /* Πού είναι */
 SCR.find=()=>backBtn("home")+'<h1>Πού είναι;</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="μοντέλο, όνομα ή barcode" autocomplete="off"><div class="list" id="dyn">'+DYN.find()+'</div>';
@@ -950,6 +952,7 @@ const A={
   countcancel:()=>{if(V.ccArm!==1){V.ccArm=1;paint();setTimeout(()=>{if(V.ccArm===1){V.ccArm=0;if(V.scr==="countscan")paint()}},4000);return}V.ccArm=0;A.cancelflow()},
   cltoggle:()=>{V.cl=!V.cl;paint()},
   msgclr:()=>{V.msg=null;paint()},
+  torch:async()=>{V.torch=!V.torch;try{const tr=stream&&stream.getVideoTracks()[0];if(tr)await tr.applyConstraints({advanced:[{torch:V.torch}]})}catch(e){toast("Ο φακός δεν ανοίγει από τη σελίδα σε αυτό το κινητό.");V.torch=false}const b=document.getElementById("torchbtn");if(b){b.className="torch"+(V.torch?" on":"");b.textContent=V.torch?"🔦 Φακός ανοιχτός":"🔦 Φακός"}},
   locknosn:()=>{const L=V.lock;if(!L)return;const c=V.cart.find(x=>x.p===L.p);if(c&&(c.codes||[]).includes(L.code)){V.lockAsk=1;paint();return}lockDone(null)},
   snyes:()=>{const c=V.snCand;V.snCand=null;V.msg=null;if(c&&V.lock)lockDone(c)},
   lockflip:()=>{const L=V.lock;if(!L)return;const np=L.part==="i"?"o":"i";OP({op:"linkCode",pid:L.p,code:L.code+"@"+np});L.part=np;toast("Διορθώθηκε: αυτό το barcode είναι "+(np==="i"?"εσωτερική":"εξωτερική")+".");paint()},
