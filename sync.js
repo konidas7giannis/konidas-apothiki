@@ -5,7 +5,7 @@
 (function () {
   "use strict";
   if (window.__KSYNC) { window.__KSYNC.show(); return; }
-  const VER = "1.3";
+  const VER = "1.4";
   const WHS = { KTIMA: 8, PARAGGELIA: 7, EKTHESI: 6, MAGAZI: 1, AITOLIKI: 5, NEKTARIOS: 2, FYLAXI: 3 };
   const NAMES = { MAGAZI: "Αποθ. μαγαζιού", EKTHESI: "Έκθεση", KTIMA: "Κτήμα", FYLAXI: "Φύλαξη", AITOLIKI: "Αιτωλική", NEKTARIOS: "Νεκτάριος", XALASMENA: "Χτυπημένα", PARAGGELIA: "Παραγγελία", CUS: "Πελάτης", SUP: "Προμηθευτής", ADJ: "Διόρθωση" };
   const ALLW = Object.keys(WHS).concat(["XALASMENA"]);
@@ -310,14 +310,30 @@
      Κάθε νύχτα (02:00–05:00) ελέγχει αναλυτικά όλες τις αποθήκες όλων των προϊόντων με απόθεμα.
      Αν ένα προϊόν δεν έχει εκκρεμή κίνηση στην εφαρμογή, η αλλαγή του admin περνάει στην εφαρμογή αυτόματα.
      Αν έχει εκκρεμή κίνηση και άλλαξε και στο admin, μπαίνει στο «Θέλει απόφασή σου». */
-  const TOTK = "ksync_totals";
+  const TOTK = "ksync_totals", SITEMETA = {};
+  /* Ό,τι διορθώνεται στο site (τίτλος, κωδικός, barcode) περνάει αυτόματα στην εφαρμογή */
+  async function syncMeta() {
+    const P = AUTO.P || {}; if (!Object.keys(P).length || !Object.keys(SITEMETA).length) return;
+    const ch = [], nw = [], norm = x => String(x == null ? "" : x).replace(/\s+/g, " ").trim();
+    for (const id in SITEMETA) { const s = SITEMETA[id], p = P[id];
+      if (!p) { if (s.n) nw.push({ id, n: s.n, code: s.code, ean: s.ean }); continue; }
+      const d = {}; if (s.n && norm(s.n) !== norm(p.n)) d.n = s.n; if (norm(s.code) !== norm(p.code)) d.code = s.code; if (norm(s.ean) !== norm(p.ean)) d.ean = s.ean;
+      if (Object.keys(d).length) ch.push(Object.assign({ id }, d)); }
+    for (let i = 0; i < ch.length; i += 300) await api("POST", null, { ops: [{ op: "meta", oid: "meta" + Date.now() + i, list: ch.slice(i, i + 300) }] });
+    if (nw.length) await api("POST", null, { ops: nw.slice(0, 100).map((p, i) => ({ op: "addProduct", oid: "np" + Date.now() + i, p })) });
+    if (ch.length || nw.length) { AUTO.log.unshift({ t: Date.now(), n: "Στοιχεία προϊόντων", k: "ok", msg: "Από το site στην εφαρμογή: " + ch.length + " αλλαγές (τίτλος/κωδικός/barcode)" + (nw.length ? ", " + Math.min(nw.length, 100) + " νέα προϊόντα" : "") }); AUTO.pver = ""; }
+  }
   async function siteTotals() {
     const t = {};
     for (let pg = 1; pg < 60; pg++) {
       const h = await fetchT("/admin/products.php?action=list&admin_items_pp=200&page=" + pg);
       const d = new DOMParser().parseFromString(h, "text/html"), cbs = [...d.querySelectorAll("input.record_checkbox")];
       if (!cbs.length) break;
-      cbs.forEach(cb => { const sec = (cb.closest("tr").querySelector(".product_second_row") || {}).textContent || "", m = sec.match(/Απόθεμα:\s*(-?\d+)/); t[cb.value] = m ? Number(m[1]) : 0; });
+      cbs.forEach(cb => { const tr = cb.closest("tr"), sr = tr.querySelector(".product_second_row"), sec = (sr || {}).textContent || "", m = sec.match(/Απόθεμα:\s*(-?\d+)/); t[cb.value] = m ? Number(m[1]) : 0;
+        /* στοιχεία προϊόντος για την εφαρμογή: τίτλος, κωδικός, barcode */
+        const a = tr.querySelector("a.search_highlight"); let n = ""; if (a) { const c = a.cloneNode(true); c.querySelectorAll(".product_second_row").forEach(x => x.remove()); n = c.textContent.replace(/\s+/g, " ").trim(); }
+        const kc = sec.match(/Κωδ:\s*(\S+)/), bc = sec.match(/Barcode:\s*(\S+)/);
+        SITEMETA[cb.value] = { n, code: kc ? kc[1] : "", ean: bc ? bc[1] : "" }; });
       if (cbs.length < 200) break;
     }
     return t;
@@ -348,6 +364,7 @@
     else if (!prev) return;
     else ids = Object.keys(cur).filter(id => cur[id] !== prev[id]);
     if (ids.length) await adoptSite(ids, full ? "νυχτερινός έλεγχος" : "αλλαγή συνόλου");
+    try { await syncMeta(); } catch (e) { AUTO.err = "Στοιχεία προϊόντων: " + e.message; }
     AUTO.lastWatch = now.getTime(); if (full) AUTO.lastFull = now.toDateString();
   }
   async function watchTick() {
