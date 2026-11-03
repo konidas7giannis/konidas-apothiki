@@ -107,9 +107,9 @@ h2{font:700 16px var(--fd);margin:4px 0 0;color:var(--navy)}
 .steps i{flex:1;height:4px;border-radius:4px;background:var(--line)}
 .steps i.on{background:var(--gold)}
 /* camera */
-.cam{position:relative;background:#000;border-radius:20px;overflow:hidden;aspect-ratio:4/3.1;box-shadow:var(--shadow)}
+.cam{position:relative;background:#000;border-radius:20px;overflow:hidden;aspect-ratio:16/9;box-shadow:var(--shadow)}
 .cam video{width:100%;height:100%;object-fit:cover;display:block}
-.cam .frame{position:absolute;left:9%;right:9%;top:30%;bottom:30%;border-radius:14px;box-shadow:0 0 0 2000px rgba(0,0,0,.35)}
+.cam .frame{position:absolute;left:7%;right:7%;top:20%;bottom:20%;border-radius:14px;box-shadow:0 0 0 2000px rgba(0,0,0,.35)}
 .cam .frame::before,.cam .frame::after{content:"";position:absolute;inset:0;border-radius:14px;border:3px solid rgba(255,255,255,.9);-webkit-mask:linear-gradient(#000 0 0) top left/26px 26px no-repeat,linear-gradient(#000 0 0) top right/26px 26px no-repeat,linear-gradient(#000 0 0) bottom left/26px 26px no-repeat,linear-gradient(#000 0 0) bottom right/26px 26px no-repeat;mask:linear-gradient(#000 0 0) top left/26px 26px no-repeat,linear-gradient(#000 0 0) top right/26px 26px no-repeat,linear-gradient(#000 0 0) bottom left/26px 26px no-repeat,linear-gradient(#000 0 0) bottom right/26px 26px no-repeat}
 .cam .laser{position:absolute;left:12%;right:12%;top:50%;height:2px;background:var(--gold);box-shadow:0 0 12px var(--gold)}
 @media (prefers-reduced-motion:no-preference){.cam .laser{animation:sweep 1.8s ease-in-out infinite}@keyframes sweep{0%,100%{transform:translateY(-34px)}50%{transform:translateY(34px)}}}
@@ -638,7 +638,10 @@ function render(){
 }
 function paint(){ /* ενημέρωση χωρίς να ξαναξεκινά η κάμερα */
   const d=document.getElementById("dyn");
-  if(d&&DYN[V.scr]&&shown===V.scr){d.innerHTML=DYN[V.scr]();return}
+  if(d&&DYN[V.scr]&&shown===V.scr){d.innerHTML=DYN[V.scr]();
+    /* μήνυμα με κουμπιά: να φαίνεται ολόκληρο πάνω από τα κάτω κουμπιά */
+    const mb=d.querySelector(".msg button");if(mb){const box=mb.closest(".msg"),dk=document.querySelector(".dock");if(box&&dk){const r=box.getBoundingClientRect(),top=dk.getBoundingClientRect().top;if(r.bottom>top-8)window.scrollBy({top:r.bottom-top+16,behavior:"smooth"})}}
+    return}
   render();
 }
 function go(s,keepMsg){if(!keepMsg)V.msg=null;V.scr=s;render();window.scrollTo(0,0)}
@@ -800,7 +803,7 @@ DYN.countscan=()=>{const n=cartN(),pend=acPending(),L=cwList(),done=L.filter(p=>
   const prog='<button class="quick" data-a="cltoggle" style="margin:0"><span style="font-size:22px;font-weight:800;color:var(--navy);min-width:70px;text-align:center">'+done+'/'+L.length+'</span><span>Είδη που μέτρησες<small>'+(left?'απομένουν '+left+' από τη λίστα της αποθήκης · '+(V.cl?'κρύψε':'δες')+' τη λίστα':'μέτρησες όλη τη λίστα ✓')+'</small></span></button>';
   const lst=V.cl?'<div class="list" style="gap:6px">'+L.map(p=>{const c=V.cart.find(x=>x.p===p.id);return '<button class="prow" data-a="clpick" data-v="'+p.id+'" style="'+(c?'background:#eefaf1;border-color:var(--ok)':'')+'"><div><span class="mdlbig" style="font-size:17px">'+(c?'✓ ':'○ ')+esc(modelOf(p))+'</span><small>'+esc(p.n)+(c?' · μέτρησες '+c.q:'')+'</small></div>'+'</button>'}).join("")+'</div><div class="muted" style="font-size:13px">Πάτα συσκευή μόνο αν δεν έχει barcode για σκανάρισμα (μετράει 1 ολόκληρο τεμάχιο).</div>':"";
   return '<div class="list" style="gap:10px">'+msgHTML()+((V.msg&&!pend&&!V.lock)?'':step)+prog+lst+(V.cart.length?'<h2 style="margin:6px 0 0">Μετρημένα</h2>'+V.cart.map((c,i)=>{const p=P(c.p);return '<div class="item'+(c.p===V.fresh?" fresh":"")+'"><div class="t"><b>'+esc(modelOf(p))+'</b><small>'+esc(p.n)+'</small>'+(c.ac?'<small style="display:block">'+acTxt(c)+'</small>':"")+(V.qedit===i?qEditHTML(i):"")+'</div><div class="qty"><button data-a="cq" data-i="'+i+'" data-v="-1">−</button><span data-a="qedit" data-i="'+i+'" style="cursor:pointer;text-decoration:underline dotted">'+c.q+'</span><button data-a="cq" data-i="'+i+'" data-v="1">+</button></div></div>'}).join(""):'')+'</div>'+
-  '<div class="dock"><button class="btn btn-ok" data-a="countend"'+(n?"":" disabled")+'>Τέλος μέτρησης · '+plural(n,"τεμάχιο","τεμάχια")+'</button><div class="row" style="gap:8px"><button class="btn btn-ghost" style="flex:1" data-a="countlater">Συνέχεια αργότερα</button><button class="btn btn-ghost" style="flex:1" data-a="countcancel">'+(V.ccArm?'Σίγουρα; πάτα ξανά':'Ακύρωση')+'</button></div></div>'};
+  '<div class="dock"><button class="btn btn-ok" data-a="countend"'+(n?"":" disabled")+'>Τέλος μέτρησης · '+plural(n,"τεμάχιο","τεμάχια")+'</button><div class="row" style="gap:8px"><button class="btn btn-ghost btn-sm" style="flex:1" data-a="countlater">Συνέχεια αργότερα</button><button class="btn btn-ghost btn-sm" style="flex:1" data-a="countcancel">'+(V.ccArm?'Σίγουρα; πάτα ξανά':'Ακύρωση')+'</button></div></div>'};
 SCR.countres=()=>{const w=V.cw;
   if(!SQ()){const n=cartN();return '<h1>Τέλος μέτρησης · '+esc(NAMES[w])+'</h1><div class="sentence">Μέτρησες '+plural(n,"κομμάτι","κομμάτια")+' σε '+plural(V.cart.length,"συσκευή","συσκευές")+'.</div><div class="list">'+V.cart.map(c=>'<div class="item"><div class="t"><b>'+c.q+' × '+esc(P(c.p).n)+'</b>'+(c.ac?'<small>'+acTxt(c)+'</small>':"")+'</div></div>').join("")+'</div><div class="dock"><button class="btn btn-ok" data-a="countsend">Στείλε στον διαχειριστή</button><button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button></div>'}
   const rows=[];let bad=0,ok=0;
