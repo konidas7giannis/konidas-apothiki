@@ -5,7 +5,7 @@
 (function () {
   "use strict";
   if (window.__KSYNC) { window.__KSYNC.show(); return; }
-  const VER = "1.2";
+  const VER = "1.3";
   const WHS = { KTIMA: 8, PARAGGELIA: 7, EKTHESI: 6, MAGAZI: 1, AITOLIKI: 5, NEKTARIOS: 2, FYLAXI: 3 };
   const NAMES = { MAGAZI: "Αποθ. μαγαζιού", EKTHESI: "Έκθεση", KTIMA: "Κτήμα", FYLAXI: "Φύλαξη", AITOLIKI: "Αιτωλική", NEKTARIOS: "Νεκτάριος", XALASMENA: "Χτυπημένα", PARAGGELIA: "Παραγγελία", CUS: "Πελάτης", SUP: "Προμηθευτής", ADJ: "Διόρθωση" };
   const ALLW = Object.keys(WHS).concat(["XALASMENA"]);
@@ -259,7 +259,7 @@
   function autoView() {
     if (!AUTO.on) return;
     const cf = Object.values(AUTO.conf);
-    B.innerHTML = head("Αυτόματο πέρασμα · ενεργό ✓", "Μην κλείσεις αυτή την καρτέλα. Ελέγχει κάθε 25 δευτερόλεπτα και περνάει αμέσως μόνο το απόθεμα ανά αποθήκη.") +
+    B.innerHTML = head("Αυτόματο πέρασμα · ενεργό ✓", "Μην κλείσεις αυτή την καρτέλα. Κάθε 25 δευτερόλεπτα περνάει στο site τις κινήσεις της εφαρμογής. Κάθε 20' πιάνει ό,τι αλλάξατε με το χέρι στο admin και το περνάει στην εφαρμογή. Κάθε νύχτα κάνει πλήρη διασταύρωση.") +
       `<div class="msg ${AUTO.err ? "mb" : "mo"}">${AUTO.err ? esc(AUTO.err) : "Τελευταίος έλεγχος: " + (AUTO.last ? new Date(AUTO.last).toLocaleTimeString("el-GR") : "–") + " · περάστηκαν: " + AUTO.n}</div>` +
       (cf.length ? `<h2 class="warn">Θέλουν απόφαση · ${cf.length}</h2><div class="m">Δεν τα άγγιξα. Πάτα «Σταμάτα» και μετά τον σελιδοδείκτη για χειροκίνητο πέρασμα με επιλογές.</div><table>${cf.map(x => `<tr><td><b>${esc(x.n)}</b></td><td class="warn">${esc(x.why)}</td></tr>`).join("")}</table>` : "") +
       `<h2>Τελευταία</h2><table>${AUTO.log.slice(0, 15).map(x => `<tr><td class="m">${new Date(x.t).toLocaleTimeString("el-GR")}</td><td><b>${esc(x.n)}</b></td><td class="${x.k}">${esc(x.msg)}</td></tr>`).join("") || '<tr><td class="m">Καμία κίνηση ακόμα.</td></tr>'}</table>` +
@@ -305,8 +305,61 @@
     AUTO.beat = Date.now();
     await api("POST", null, { ops: [{ op: "beat", oid: "b" + Date.now(), pend: Math.max(0, pend), conf: Object.entries(AUTO.conf).map(([p, x]) => ({ p, n: x.n, why: x.why })), err: err || "" }] });
   }
-  A.autostart = () => { AUTO.on = true; AUTO.ver = ""; autoView(); autoTick(); AUTO.timer = setInterval(autoTick, 25000); };
-  A.autostop = () => { AUTO.on = false; clearInterval(AUTO.timer); load(); };
+  /* ---------- Αλλαγές που έγιναν με το χέρι στο admin: τις υιοθετεί η εφαρμογή ----------
+     Κάθε 20' συγκρίνει το συνολικό απόθεμα κάθε προϊόντος (λίστα admin) με την προηγούμενη φορά.
+     Κάθε νύχτα (02:00–05:00) ελέγχει αναλυτικά όλες τις αποθήκες όλων των προϊόντων με απόθεμα.
+     Αν ένα προϊόν δεν έχει εκκρεμή κίνηση στην εφαρμογή, η αλλαγή του admin περνάει στην εφαρμογή αυτόματα.
+     Αν έχει εκκρεμή κίνηση και άλλαξε και στο admin, μπαίνει στο «Θέλει απόφασή σου». */
+  const TOTK = "ksync_totals";
+  async function siteTotals() {
+    const t = {};
+    for (let pg = 1; pg < 60; pg++) {
+      const h = await fetchT("/admin/products.php?action=list&admin_items_pp=200&page=" + pg);
+      const d = new DOMParser().parseFromString(h, "text/html"), cbs = [...d.querySelectorAll("input.record_checkbox")];
+      if (!cbs.length) break;
+      cbs.forEach(cb => { const sec = (cb.closest("tr").querySelector(".product_second_row") || {}).textContent || "", m = sec.match(/Απόθεμα:\s*(-?\d+)/); t[cb.value] = m ? Number(m[1]) : 0; });
+      if (cbs.length < 200) break;
+    }
+    return t;
+  }
+  async function adoptSite(ids, why) {
+    const st = await api("GET", { a: "state", pver: AUTO.pver || "" });
+    if (!st.ok) return;
+    const pendP = new Set(st.moves.filter(m => !m.syn && !m.x && m.p && m.ty !== "link").map(m => m.p));
+    for (const pid of ids) {
+      const nm = (AUTO.P[pid] || {}).n || "#" + pid;
+      let L; try { L = await readProd(pid); } catch (e) { continue; }
+      const snap = st.site[pid] || {}, diff = Object.keys(WHS).filter(w => Number(snap[w] || 0) !== L.wh[w]);
+      if (!diff.length) continue;
+      if (pendP.has(pid)) { AUTO.conf[pid] = { n: nm, why: "Άλλαξε στο admin ενώ υπάρχει και κίνηση από την εφαρμογή. Διάλεξε τι ισχύει." }; continue; }
+      const site = { [pid]: Object.assign({}, L.wh, { XALASMENA: Number(snap.XALASMENA || 0) }) };
+      const r = await api("POST", null, { ops: [{ op: "sync", oid: "adm" + Date.now() + pid, ids: [], site }] });
+      const msg = "Αλλαγή από το admin, πέρασε στην εφαρμογή: " + diff.map(w => NAMES[w] + " " + Number(snap[w] || 0) + "→" + L.wh[w]).join(", ");
+      AUTO.log.unshift({ t: Date.now(), n: nm, k: r.ok ? "ok" : "bad", msg: r.ok ? msg : "Δεν ενημερώθηκε η εφαρμογή" });
+    }
+    AUTO.log = AUTO.log.slice(0, 50);
+  }
+  async function watchAdmin(full) {
+    const now = new Date(), cur = await siteTotals();
+    let prev = null; try { prev = JSON.parse(localStorage.getItem(TOTK) || "null"); } catch (e) { }
+    localStorage.setItem(TOTK, JSON.stringify(cur));
+    let ids;
+    if (full) ids = Object.keys(cur).filter(id => cur[id] !== 0 || (prev && prev[id]));
+    else if (!prev) return;
+    else ids = Object.keys(cur).filter(id => cur[id] !== prev[id]);
+    if (ids.length) await adoptSite(ids, full ? "νυχτερινός έλεγχος" : "αλλαγή συνόλου");
+    AUTO.lastWatch = now.getTime(); if (full) AUTO.lastFull = now.toDateString();
+  }
+  async function watchTick() {
+    if (!AUTO.on || busy) return;
+    const h = new Date().getHours(), full = h >= 2 && h < 5 && AUTO.lastFull !== new Date().toDateString();
+    if (!full && AUTO.lastWatch && Date.now() - AUTO.lastWatch < 20 * 60000) return;
+    busy = true;
+    try { await watchAdmin(full); } catch (e) { AUTO.err = "Έλεγχος admin: " + e.message; }
+    busy = false; autoView();
+  }
+  A.autostart = () => { AUTO.on = true; AUTO.ver = ""; autoView(); autoTick(); AUTO.timer = setInterval(autoTick, 25000); AUTO.wtimer = setInterval(watchTick, 60000); setTimeout(watchTick, 30000); };
+  A.autostop = () => { AUTO.on = false; clearInterval(AUTO.timer); clearInterval(AUTO.wtimer); load(); };
   A.run = async () => {
     if (busy) return; busy = true;
     const res = [], st = plan.stock.filter(r => r.st === "ok" || r.st === "none" || (r.st === "conf" && choice[r.pid])), bars = plan.bars.filter(b => b.st === "ok");
