@@ -329,10 +329,10 @@ const P=id=>S.P.find(p=>p.id===id);
 /* Αναγνώριση: barcode του site, barcode που έχει «μάθει» η εφαρμογή, ή ο κωδικός προμηθευτή (π.χ. 12NC της Whirlpool) */
 const normC=c=>String(c||"").split("@")[0].replace(/[\s.\-\/]/g,"").replace(/^0+(?=\d{8,})/,"").toUpperCase();
 /* κλιματιστικά: κάθε κουτί ξέρει αν είναι εσωτερική (i), εξωτερική (o) ή σετ (s) */
-const AC_BR=/^(inventor|morris|toyotomi|midea|winstar|miyato|daikin|mitsubishi|fujitsu|gree|hisense|aux|carrier|toshiba|panasonic|lg|samsung|sharp|haier|tcl|kumo|olympia|bomann|izzy|eskimo|f&u|juro|nobel|sendo|tesla)$/i;
-const isAC=p=>{const n=String(p.n||"");if(/BTU|κλιματισ|inverter|split|\bbtu\b/i.test(n))return true;if((p.x||[]).some(x=>/@[io]$/.test(String(x))))return true;
+const AC_BR=/^(inventor|morris|toyotomi|princess|singer|midea|winstar|miyato|daikin|mitsubishi|fujitsu|gree|hisense|aux|carrier|toshiba|panasonic|lg|samsung|sharp|haier|tcl|kumo|olympia|bomann|izzy|eskimo|f&u|juro|nobel|sendo|tesla)$/i;
+const isAC=p=>{const n=String(p.n||"");if(/BTU|κλιματισ|inverter|split|\bbtu\b|xtreme|\bW(SR|ST|NX)-|\bMI-93|\bAG\d|AIRGRN/i.test(n))return true;if((p.x||[]).some(x=>/@[io]$/.test(String(x))))return true;
   /* ζευγάρι μοντέλων «εσωτερική/εξωτερική» σε μάρκα κλιματιστικών, π.χ. NRI-09WFI/NRO-09 */
-  return AC_BR.test(brandOf(p))&&/[A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*\s*\/\s*[A-Z0-9-]*\d/i.test(n)};
+  return AC_BR.test(brandOf(p))&&/[A-Z0-9][A-Z0-9-]+\s*\/\s*(?!\d+\s*(w|watt|lt)\b)[A-Z0-9-]*\d/i.test(n)};
 function partTag(p,code){const k=normC(code);const t=[...(p.x||[])].reverse().find(x=>String(x).includes("@")&&normC(x)===k);return t?String(t).split("@")[1]:null}
 const SQ=()=>isAdmin(); /* ποσότητες και τιμές μόνο για διαχειριστές */
 let codeIdx=null,codeIdxN=-1;
