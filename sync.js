@@ -5,7 +5,7 @@
 (function () {
   "use strict";
   if (window.__KSYNC) { window.__KSYNC.show(); return; }
-  const VER = "1.1";
+  const VER = "1.2";
   const WHS = { KTIMA: 8, PARAGGELIA: 7, EKTHESI: 6, MAGAZI: 1, AITOLIKI: 5, NEKTARIOS: 2, FYLAXI: 3 };
   const NAMES = { MAGAZI: "Αποθ. μαγαζιού", EKTHESI: "Έκθεση", KTIMA: "Κτήμα", FYLAXI: "Φύλαξη", AITOLIKI: "Αιτωλική", NEKTARIOS: "Νεκτάριος", XALASMENA: "Χτυπημένα", PARAGGELIA: "Παραγγελία", CUS: "Πελάτης", SUP: "Προμηθευτής", ADJ: "Διόρθωση" };
   const ALLW = Object.keys(WHS).concat(["XALASMENA"]);
@@ -279,7 +279,12 @@
         const pend = r.moves.filter(m => !m.syn && !m.x && m.p && m.ty !== "link");
         const by = {}; pend.forEach(m => { (by[m.p] = by[m.p] || []).push(m); });
         AUTO.conf = {};
+        /* Ασφάλεια: πολλές αλλαγές μαζί (π.χ. λάθος μέτρηση) δεν περνάνε ποτέ αυτόματα */
+        const batches = {}; pend.forEach(m => { (batches[m.b || m.id] = batches[m.b || m.id] || new Set()).add(m.p); });
+        const big = new Set(); Object.values(batches).forEach(st => { if (st.size > 15) st.forEach(p => big.add(p)); });
+        if (big.size) AUTO.conf["_big"] = { n: big.size + " προϊόντα σε μία κίνηση", why: "Πολλές αλλαγές μαζί (π.χ. μέτρηση). Δεν περνάνε αυτόματα: θέλουν έλεγχο και χειροκίνητη έγκριση." };
         for (const pid of Object.keys(by)) {
+          if (big.has(pid)) continue;
           const nm = (AUTO.P[pid] || {}).n || "#" + pid, snap = r.site[pid] || {}, tgt = {}, ms = by[pid].sort((a, b) => a.t - b.t);
           ALLW.forEach(w => { tgt[w] = Number(snap[w] || 0); });
           ms.forEach(m => { if (tgt[m.f] !== undefined) tgt[m.f] -= Number(m.q); if (tgt[m.to] !== undefined) tgt[m.to] += Number(m.q); });
