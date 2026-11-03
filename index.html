@@ -694,7 +694,7 @@ SCR.countres=()=>{const w=V.cw;let bad=0;const rows=[];
     rows.push('<tr><td>'+esc(p.n)+'</td><td>'+sys+'</td><td>'+n+'</td><td class="'+(d===0?"r-ok":d<0?"r-bad":"r-w")+'">'+(d===0?"✓":d<0?"λείπουν "+(-d):"+"+d)+'</td></tr>')}
   return '<h1>Αποτέλεσμα · '+esc(NAMES[w])+'</h1>'+(bad?'<div class="msg m-warn">'+I.warn+'<div>'+plural(bad,"διαφορά","διαφορές")+'. Ξαναμέτρησε αυτές πριν διορθώσεις.</div></div>':'<div class="msg m-ok">'+I.check+'<div>Όλα συμφωνούν με το σύστημα.</div></div>')+
   '<div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Σύστημα</th><th>Μέτρησα</th><th></th></tr></thead><tbody>'+rows.join("")+'</tbody></table></div>'+
-  '<div class="dock">'+(bad?(isAdmin()?'<button class="btn btn-ok" data-a="countfix">Διόρθωσε το απόθεμα</button>':'<button class="btn btn-ok" data-a="countsend">Στείλε για έλεγχο</button>'):"")+'<button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button><button class="btn btn-ghost" data-a="countclose">Κλείσιμο</button></div>'};
+  '<div class="dock">'+(bad?(isAdmin()?'<div class="msg m-bad">'+I.warn+'<div>Η διόρθωση αλλάζει μόνο όσα σκάναρες. Για πλήρη απογραφή χρησιμοποίησε τη νέα έκδοση.</div></div><button class="btn btn-ok" data-a="countfix">Διόρθωσε μόνο όσα σκάναρα</button>':'<button class="btn btn-ok" data-a="countsend">Στείλε για έλεγχο</button>'):"")+'<button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button><button class="btn btn-ghost" data-a="countclose">Κλείσιμο</button></div>'};
 
 /* Πού είναι */
 SCR.find=()=>backBtn("home")+'<h1>Πού είναι;</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="μοντέλο, όνομα ή barcode" autocomplete="off"><div class="list" id="dyn">'+DYN.find()+'</div>';
@@ -798,7 +798,7 @@ const A={
   eodok:v=>{OP({op:"eod",d:v});V.eodAll=false;render();toast("Ευχαριστώ! Όλα καταγεγραμμένα.")},
   eodall:()=>{V.eodAll=!V.eodAll;render()},
   countclose:()=>{clearDraft();go("home")},
-  countfix:()=>{const t=Date.now(),b=uid();for(const p of S.P){const sys=lq(p.id,V.cw),c=V.cart.find(x=>x.p===p.id),n=c?c.q:0,d=n-sys;if(d)addMove({id:uid(),b,t,u:S.user,ty:"count",p:p.id,q:Math.abs(d),f:d<0?V.cw:"ADJ",to:d<0?"ADJ":V.cw})}
+  countfix:()=>{const t=Date.now(),b=uid();for(const p of S.P){const c=V.cart.find(x=>x.p===p.id);if(!c)continue;const sys=lq(p.id,V.cw),n=c.q,d=n-sys;if(d)addMove({id:uid(),b,t,u:S.user,ty:"count",p:p.id,q:Math.abs(d),f:d<0?V.cw:"ADJ",to:d<0?"ADJ":V.cw})}
     V.lastBatch=b;V.doneTxt="Διορθώθηκε το απόθεμα στο "+NAMES[V.cw];clearDraft();chime();go("done")},
   countsend:()=>{addMove({id:uid(),t:Date.now(),u:S.user,ty:"count",p:null,q:0,f:V.cw,to:V.cw,note:"μέτρηση με διαφορές για έλεγχο"});clearDraft();go("home");toast("Στάλθηκε για έλεγχο στον Γιάννη και τον Γιώργο.")},
   startfind:()=>{V.q="";V.focus=1;go("find")},
