@@ -574,7 +574,7 @@ function acAskHTML(p){const [mi,mo]=acModels(p);return '<b>Τι γράφει α�
 const noSn=id=>(S.nosn||[]).includes(id);
 /* Μεγάλες συσκευές = κατηγορίες του konidas.gr (αν λείπει κατηγορία, από το όνομα) */
 const BIG_CATS=new Set(["Πλυντήρια","Πλυντήρια πιάτων","Πλυντήρια στεγνωτήρια","Στεγνωτήρια","Ψυγεία","Ψυγειοκαταψύκτες","Καταψύκτες","Δίπορτα","Μονόπορτα","Ντουλάπες","Συντηρητές κρασιών","Τηλεοράσεις","Οικιακά κλιματιστικά","Φορητά κλιματιστικά","Εντοιχιζόμενα σετ","Εστίες","Φούρνοι","Ηλεκτρικές","Υγραερίου","Καμινάδες","Συρόμενοι","Ελεύθεροι","Πτυσσόμενοι","Μηχανισμοί απορρόφησης"]);
-const isBig=p=>!noSn(p.id)&&(p.cat?BIG_CATS.has(p.cat)||isAC(p):isAC(p)||/ψυγ|καταψ|πλυντ|στεγν|κουζιν|κουζίν|φούρν|φουρν|εστί|εστι|απορροφ|τηλεόρ|τηλεορ|\btv\b|smart tv|oled|qled|θερμοσ|αφυγραντ|αντλία θερμ|ψυκτ|οινοθ/i.test(p.n||""));
+const isBig=p=>!noSn(p.id)&&(p.cat?BIG_CATS.has(catLeaf(p.cat))||isAC(p):isAC(p)||/ψυγ|καταψ|πλυντ|στεγν|κουζιν|κουζίν|φούρν|φουρν|εστί|εστι|απορροφ|τηλεόρ|τηλεορ|\btv\b|smart tv|oled|qled|θερμοσ|αφυγραντ|αντλία θερμ|ψυκτ|οινοθ/i.test(p.n||""));
 function countHit(code,fmt,direct){
   if(!direct&&V.lock){const L=V.lock,k=normC(code);
     if(k===L.code)return; /* το ίδιο κουτί ακόμα μπροστά στην κάμερα */
@@ -862,16 +862,25 @@ function specOf(p){const n=String(p.n||"");let m;
   if(m=/(\d{2,3})\s*(?:lt|λίτρ|λιτρ|l)\b/i.exec(n))return m[1]+" lt";
   if(m=/(\d{2})\s*cm\b/i.exec(n))return m[1]+" cm";
   return ""}
-const catOf=p=>p.cat||"Χωρίς κατηγορία",brOf=p=>(p.br||String(p.n||"").split(/\s+/)[0]||"").trim().toUpperCase();
+const catLeaf=c=>String(c||"").split(" › ").pop().trim(),catPath=p=>String(p.cat||"").split(" › ").map(x=>x.trim()).filter(Boolean),catOf=p=>catLeaf(p.cat)||"Χωρίς κατηγορία",brOf=p=>(p.br||String(p.n||"").split(/\s+/)[0]||"").trim().toUpperCase();
 function catSet(){return S.P.filter(p=>V.c0||tot(p.id)>0)}
-SCR.cat=()=>backBtn("home")+'<h1>Τι έχουμε</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="ψάξε κατηγορία, π.χ. πλυντ" autocomplete="off"><div class="list" id="dyn">'+DYN.cat()+'</div>';
-DYN.cat=()=>{const g={};for(const p of catSet()){const c=catOf(p);(g[c]=g[c]||{n:0,u:0}).n++;g[c].u+=tot(p.id)}
-  const q=normS(V.q||"");const rows=Object.entries(g).filter(([c])=>!q||normS(c).includes(q)).sort((a,b)=>b[1].u-a[1].u);
-  return '<button class="quick" data-a="catall" style="margin:0"><span>'+(V.c0?'Δείχνω και όσα δεν έχουν απόθεμα':'Δείχνω μόνο όσα έχουμε')+'<small>πάτα για αλλαγή</small></span></button>'+
-  (rows.length?rows.map(([c,x])=>'<button class="prow" data-a="catpick" data-v="'+esc(c)+'"><div><b>'+esc(c)+'</b><small>'+plural(x.n,"μοντέλο","μοντέλα")+'</small></div>'+(SQ()?'<span class="n">'+x.u+'<small>τεμ.</small></span>':I.chev)+'</button>').join(""):'<div class="empty">Δεν βρέθηκε κατηγορία.</div>')+
-  (S.P.some(p=>!p.cat)?'<div class="muted" style="font-size:13px">Οι κατηγορίες έρχονται από το konidas.gr και ενημερώνονται μόνες τους.</div>':'')};
-SCR.catl=()=>backBtn("cat")+'<h1>'+esc(V.cc||"")+'</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="φίλτρο: μοντέλο ή λέξη" autocomplete="off"><div class="list" id="dyn">'+DYN.catl()+'</div>';
-DYN.catl=()=>{const base=catSet().filter(p=>catOf(p)===V.cc),ts=tokens(V.q||"");
+SCR.cat=()=>{const cp=V.cp||[];return backBtn(cp.length?"cat":"home")+'<h1>'+(cp.length?esc(cp[cp.length-1]):'Τι έχουμε')+'</h1>'+(cp.length>1?'<div class="sub">'+cp.slice(0,-1).map(esc).join(" › ")+'</div>':'')+'<input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="ψάξε κατηγορία ή μοντέλο" autocomplete="off"><div class="list" id="dyn">'+DYN.cat()+'</div>'};
+DYN.cat=()=>{const cp=V.cp||[],set=catSet(),q=normS(V.q||"");
+  const under=set.filter(p=>{const pa=catPath(p);return cp.every((x,i)=>pa[i]===x)});
+  if(q){ /* αναζήτηση σε όλες τις κατηγορίες και τα μοντέλα */
+    const cats={};for(const p of set){const pa=catPath(p);pa.forEach((x,i)=>{if(normS(x).includes(q)){const k=pa.slice(0,i+1).join(" › ");(cats[k]=cats[k]||{n:0,u:0}).n++;cats[k].u+=tot(p.id)}})}
+    const ps=searchP(V.q,20).filter(p=>V.c0||tot(p.id)>0);
+    return Object.entries(cats).sort((a,b)=>b[1].u-a[1].u).slice(0,15).map(([k,x])=>'<button class="prow" data-a="catgo" data-v="'+esc(k)+'"><div><b>'+esc(catLeaf(k))+'</b><small>'+esc(k)+' · '+plural(x.n,"μοντέλο","μοντέλα")+'</small></div>'+(SQ()?'<span class="n">'+x.u+'<small>τεμ.</small></span>':I.chev)+'</button>').join("")+
+      (ps.length?'<div class="muted" style="margin-top:6px">Μοντέλα</div>'+ps.map(p=>'<button class="prow" data-a="catprod" data-v="'+p.id+'"><div><span class="mdlbig" style="font-size:17px">'+esc(modelOf(p))+'</span><small>'+esc(p.n)+' · '+esc(catOf(p))+'</small></div>'+(SQ()?'<span class="n">'+tot(p.id)+'<small>τεμ.</small></span>':availBadge(p))+'</button>').join(""):'')||'<div class="empty">Τίποτα με «'+esc(V.q)+'».</div>'}
+  const g={};let direct=0;for(const p of under){const pa=catPath(p),k=pa[cp.length];if(!k){direct++;continue}(g[k]=g[k]||{n:0,u:0}).n++;g[k].u+=tot(p.id)}
+  const rows=Object.entries(g).sort((a,b)=>b[1].u-a[1].u||a[0].localeCompare(b[0]));const tu=under.reduce((a,p)=>a+tot(p.id),0);
+  return (cp.length?'':'<button class="quick" data-a="catall" style="margin:0"><span>'+(V.c0?'Δείχνω και όσα δεν έχουν απόθεμα':'Δείχνω μόνο όσα έχουμε')+'<small>πάτα για αλλαγή</small></span></button>')+
+    (cp.length&&rows.length?'<button class="prow" data-a="catgo" data-v="'+esc(cp.join(" › "))+'" data-all="1" style="border-color:var(--gold)"><div><b>Όλα: '+esc(cp[cp.length-1])+'</b><small>'+plural(under.length,"μοντέλο","μοντέλα")+' · με φίλτρα μάρκας/μεγέθους</small></div>'+(SQ()?'<span class="n">'+tu+'<small>τεμ.</small></span>':I.chev)+'</button>':'')+
+    rows.map(([k,x])=>'<button class="prow" data-a="catin" data-v="'+esc(k)+'"><div><b>'+esc(k)+'</b><small>'+plural(x.n,"μοντέλο","μοντέλα")+'</small></div>'+(SQ()?'<span class="n">'+x.u+'<small>τεμ.</small></span>':I.chev)+'</button>').join("")+
+    (!rows.length&&!under.length?'<div class="empty">Δεν υπάρχει τίποτα εδώ.</div>':'')+
+    (!cp.length?'<div class="muted" style="font-size:13px">Οι κατηγορίες είναι ίδιες με του konidas.gr και ενημερώνονται μόνες τους.</div>':'')};
+SCR.catl=()=>backBtn("cat")+'<h1>'+esc(catLeaf(V.cc||""))+'</h1>'+(String(V.cc||"").includes(" › ")?'<div class="sub">'+esc(V.cc)+'</div>':'')+'<input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="φίλτρο: μοντέλο ή λέξη" autocomplete="off"><div class="list" id="dyn">'+DYN.catl()+'</div>';
+DYN.catl=()=>{const pre=String(V.cc||"").split(" › "),base=catSet().filter(p=>{const pa=catPath(p);return pa.length?pre.every((x,i)=>pa[i]===x):V.cc==="Χωρίς κατηγορία"}),ts=tokens(V.q||"");
   const L=base.filter(p=>(!V.cb||brOf(p)===V.cb)&&(!V.cs||specOf(p)===V.cs)&&(!ts.length||ts.every(t=>normS(p.n+" "+p.m).includes(t))));
   const cnt=(arr,f)=>{const o={};for(const p of arr){const k=f(p);if(!k)continue;(o[k]=o[k]||{n:0,u:0}).n++;o[k].u+=tot(p.id)}return Object.entries(o).sort((a,b)=>b[1].u-a[1].u||a[0].localeCompare(b[0]))};
   const chip=(a,v,on,lbl)=>'<button class="btn btn-sm '+(on?'btn-gold':'btn-ghost')+'" style="flex:none" data-a="'+a+'" data-v="'+esc(v)+'">'+esc(lbl)+'</button>';
@@ -945,7 +954,7 @@ const A={
   taskadd:v=>{const tx=(V.tk||"").trim();if(!tx){toast("Γράψε τι θέλεις να κάνω.");return}OP({op:"task",id:uid(),p:v||"",text:tx});V.tk="";render();toast("Μπήκε στη λίστα «Για Claude».")},
   taskdone:v=>{OP({op:"taskDone",id:v});render()},
   ulock:v=>{const u=(S.users||[]).find(x=>x.name===v);if(!u)return;if(V.ulArm!==v){V.ulArm=v;toast("Πάτα ξανά για "+(u.active===false?"ξεκλείδωμα":"κλείδωμα")+" του χρήστη "+v+".");return}V.ulArm=null;const was=u.active!==false;OP({op:"setUser",name:v,active:!was});render();toast(was?"Κλειδώθηκε: "+v+".":"Ξεκλειδώθηκε: "+v+".")},
-  back:()=>{const s=V.scr,pr=parentOf(s);if(!pr)return;
+  back:()=>{const s=V.scr;if(s==="cat"&&V.cp&&V.cp.length){A.catup();return}const pr=parentOf(s);if(!pr)return;
     if(s==="scan"||s==="countscan"){stopCam();if(V.cart&&V.cart.length){saveDraft();V.kind=null;toast("Η λίστα κρατήθηκε. Τη συνεχίζεις από την αρχική.")}else clearDraft()}
     else if(s==="from"||s==="count"||s==="sale"||s==="find"){V.kind=V.kind&&S.draft?V.kind:null}
     if(pr==="scan"||pr==="countscan"){lastCode="";seen=null;V.q=""}
@@ -1042,8 +1051,10 @@ const A={
   countsend:()=>{addMove({id:uid(),t:Date.now(),u:S.user,ty:"count",p:null,q:0,f:V.cw,to:V.cw,note:"ΜΕΤΡΗΣΗ "+V.cart.map(c=>c.p+":"+c.q).join(",")});clearDraft();go("home");toast("Στάλθηκε στον διαχειριστή για έλεγχο.")},
   startfind:()=>{V.q="";V.focus=1;go("find")},
   findpick:v=>{V.fp=v;V.fromCat=0;go("prod")},
-  startcat:()=>{V.q="";V.cc=null;V.cb=null;V.cs=null;V.c0=0;go("cat")},
-  catpick:v=>{V.cc=v;V.cb=null;V.cs=null;V.q="";go("catl")},
+  startcat:()=>{V.q="";V.cp=[];V.cc=null;V.cb=null;V.cs=null;V.c0=0;go("cat")},
+  catin:v=>{const cp=(V.cp||[]).concat(v);const has=catSet().some(p=>{const pa=catPath(p);return cp.every((x,i)=>pa[i]===x)&&pa.length>cp.length});if(has){V.cp=cp;V.q="";render()}else A.catgo(cp.join(" › "))},
+  catgo:v=>{V.cc=v;V.cb=null;V.cs=null;V.q="";go("catl")},
+  catup:()=>{V.cp=(V.cp||[]).slice(0,-1);V.q="";render()},
   catbr:v=>{V.cb=V.cb===v?null:v;paint()},
   catsp:v=>{V.cs=V.cs===v?null:v;paint()},
   catall:()=>{V.c0=V.c0?0:1;paint()},

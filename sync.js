@@ -5,7 +5,7 @@
 (function () {
   "use strict";
   if (window.__KSYNC) { window.__KSYNC.show(); return; }
-  const VER = "1.5";
+  const VER = "1.6";
   const WHS = { KTIMA: 8, PARAGGELIA: 7, EKTHESI: 6, MAGAZI: 1, AITOLIKI: 5, NEKTARIOS: 2, FYLAXI: 3 };
   const NAMES = { MAGAZI: "Αποθ. μαγαζιού", EKTHESI: "Έκθεση", KTIMA: "Κτήμα", FYLAXI: "Φύλαξη", AITOLIKI: "Αιτωλική", NEKTARIOS: "Νεκτάριος", XALASMENA: "Χτυπημένα", PARAGGELIA: "Παραγγελία", CUS: "Πελάτης", SUP: "Προμηθευτής", ADJ: "Διόρθωση" };
   const ALLW = Object.keys(WHS).concat(["XALASMENA"]);
@@ -323,8 +323,19 @@
     if (nw.length) await api("POST", null, { ops: nw.slice(0, 100).map((p, i) => ({ op: "addProduct", oid: "np" + Date.now() + i, p })) });
     if (ch.length || nw.length) { AUTO.log.unshift({ t: Date.now(), n: "Στοιχεία προϊόντων", k: "ok", msg: "Από το site στην εφαρμογή: " + ch.length + " αλλαγές (τίτλος/κωδικός/barcode/κατηγορία)" + (nw.length ? ", " + Math.min(nw.length, 100) + " νέα προϊόντα" : "") }); AUTO.pver = ""; }
   }
+  /* Δέντρο κατηγοριών όπως στο site: id → «Γονική › Υποκατηγορία › Κατηγορία» */
+  let CATPATH = {};
+  async function loadCats() {
+    try {
+      const h = await fetchT("/admin/product_categories.php"), d = new DOMParser().parseFromString(h, "text/html"), sel = d.querySelector("#add_record_category");
+      if (!sel) return; const st = [], out = {};
+      for (const o of sel.querySelectorAll("option")) { if (o.value === "0") continue; const raw = o.innerHTML, dep = (raw.match(/&nbsp;&nbsp;/g) || []).length, name = o.textContent.replace(/\u00a0/g, " ").trim();
+        st.length = dep; st[dep] = name; out[o.value] = st.slice(0, dep + 1).filter(Boolean).join(" › "); }
+      CATPATH = out;
+    } catch (e) { }
+  }
   async function siteTotals() {
-    const t = {};
+    const t = {}; await loadCats();
     for (let pg = 1; pg < 60; pg++) {
       const h = await fetchT("/admin/products.php?action=list&admin_items_pp=200&page=" + pg);
       const d = new DOMParser().parseFromString(h, "text/html"), cbs = [...d.querySelectorAll("input.record_checkbox")];
@@ -333,8 +344,8 @@
         /* στοιχεία προϊόντος για την εφαρμογή: τίτλος, κωδικός, barcode */
         const a = tr.querySelector("a.search_highlight"); let n = ""; if (a) { const c = a.cloneNode(true); c.querySelectorAll(".product_second_row").forEach(x => x.remove()); n = c.textContent.replace(/\s+/g, " ").trim(); }
         const kc = sec.match(/Κωδ:\s*(\S+)/), bc = sec.match(/Barcode:\s*(\S+)/), sp = [...(sr ? sr.querySelectorAll("span") : [])], tx = k => { const e = sp.find(x => x.textContent.trim().startsWith(k)); return e ? (e.querySelector("strong") || e).textContent.replace(k, "").trim() : ""; };
-        const ca = tr.querySelector('a[href*="action=list&cat="]');
-        SITEMETA[cb.value] = { n, code: kc ? kc[1] : "", ean: bc ? bc[1] : "", cat: ca ? ca.textContent.trim() : "", br: tx("Κατ/στής:"), tpl: tx("Πρότυπο:") }; });
+        const ca = tr.querySelector('a[href*="action=list&cat="]'), cid = ca ? ((ca.getAttribute("href") || "").match(/cat=(\d+)/) || [])[1] : "";
+        SITEMETA[cb.value] = { n, code: kc ? kc[1] : "", ean: bc ? bc[1] : "", cat: ca ? (CATPATH[cid] || ca.textContent.trim()) : "", br: tx("Κατ/στής:"), tpl: tx("Πρότυπο:") }; });
       if (cbs.length < 200) break;
     }
     return t;
