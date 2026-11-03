@@ -528,9 +528,12 @@ function flashHTML(p,n,extra){return '<div class="flash">'+(p.img?'<img class="t
 let serT=0;
 function serialHint(code,fmt){const n=Date.now();
   if(V.kind==="count"&&V.lock){lockDone(code);return}
-  if(V.kind==="count"){const own=V.cart.find(x=>(x.sn||[]).includes(code));
-    if(own){V.msg=["info",'Σειριακός <b>'+esc(code)+'</b>: αυτό το κουτί ('+esc(modelOf(P(own.p)))+') είναι ήδη μετρημένο ✓'];paint();return}
-    V.msg=["info",'Αυτός είναι <b>σειριακός</b>, δεν χρειάζεται. Σκάναρε το barcode του μοντέλου (13 ψηφία).'];paint();return}
+  if(V.kind==="count"){const own=V.cart.find(x=>(x.sn||[]).includes(code)),L=V.last;
+    if(own){ /* ο σειριακός είναι ήδη μετρημένος: αν μόλις μετρήσαμε αυτό το κουτί, ήταν διπλό → αφαιρείται */
+      if(L&&!L.sn&&L.p===own.p){if(L.part&&L.part!=="s")acAdd(own,L.part,-1);else own.q--;L.sn=code;beepBad();V.msg=["info",'<b>Το είχες ήδη μετρήσει</b> (S/N '+esc(code)+'). Αφαίρεσα το διπλό. Σκάναρε το επόμενο κουτί.'];say("Διπλό, αφαιρέθηκε");saveDraft();paint();return}
+      V.msg=["info",'S/N <b>'+esc(code)+'</b>: αυτό το κουτί ('+esc(modelOf(P(own.p)))+') είναι ήδη μετρημένο ✓'];paint();return}
+    if(L&&!L.sn){const c=V.cart.find(x=>x.p===L.p);if(c){c.sn=[...(c.sn||[]),code];L.sn=code;beepOk();V.msg=["ok",'<b>S/N κρατήθηκε ✓</b> '+esc(code)+'<br><span style="font-weight:500">'+esc(modelOf(P(L.p)))+(L.part==="i"?" · εσωτερική":L.part==="o"?" · εξωτερική":"")+'. Αυτό το κουτί δεν θα μετρηθεί ποτέ δεύτερη φορά.</span>'];saveDraft();paint();return}}
+    V.msg=["info",'Αυτός είναι <b>σειριακός (S/N)</b>. Σκάναρε πρώτα το barcode του μοντέλου (13 ψηφία) και μετά, αν θες, το S/N.'];paint();return}
   if(n-serT<8000)return;serT=n;V.msg=["info","Αυτό είναι σειριακός ή εσωτερικός κωδικός. Σκάναρε το barcode του προϊόντος (13 ψηφία, συνήθως δίπλα στο μοντέλο)."+(isAdmin()?' <button class="btn btn-ghost btn-sm" data-a="forceunk" data-v="'+esc(code)+'">Είναι ο κωδικός της συσκευής</button>':"")];paint()}
 function addHit(code,fmt,direct){
   if(!direct){const all=byCodeAll(code);if(all.length>1){beepBad();V.dupCode=code;V.dupList=all.map(x=>x.id);go("pickdup");say("Διάλεξε μοντέλο");return}}
@@ -560,7 +563,7 @@ function markUnit(c,code){if(!c)return;const k=normC(code);if(k&&!k.startsWith("
 /* «Γειτονικό» barcode: ίδια εταιρεία (9 πρώτα ψηφία) και κοντινός αριθμός = πιθανότατα ίδια σειρά προϊόντος */
 function eanNear(code,p){const c=normC(code);if(!/^\d{12,13}$/.test(c))return 9e15;let best=9e15;for(const e of [p.e,...(p.x||[])]){const n=normC(e);if(n&&n.length===c.length&&n.slice(0,9)===c.slice(0,9)){const d=Math.abs(+n.slice(0,-1)-(+c.slice(0,-1)));if(d<best)best=d}}return best}
 function unkAsk(code,fmt){if((V.ign||[]).includes(code))return;if(V.unknown===code&&V.msg&&String(V.msg[1]).includes("unkopen"))return;beepBad();fx(false);V.unknown=code;V.ufmt=fmt;V.q="";
-  V.msg=["warn",'<b>Άγνωστο barcode</b> '+esc(code)+'<br><span style="font-weight:500">Αν είναι το κουτί που μετράς, πες μου ποια συσκευή είναι. Αν το έπιασε κατά λάθος, αγνόησέ το.</span><div class="row" style="gap:6px;margin-top:8px"><button class="btn btn-gold btn-sm" data-a="unkopen">Ποια συσκευή είναι;</button><button class="btn btn-ghost btn-sm" data-a="unkignore">Αγνόησε</button></div>'];say("Άγνωστο barcode");paint()}
+  V.msg=["warn",'<b>Άγνωστο barcode</b> '+esc(code)+'<br><span style="font-weight:500">Αν είναι το κουτί που μετράς, πες μου ποια συσκευή είναι. Αν το έπιασε κατά λάθος, αγνόησέ το.</span><div class="row" style="gap:6px;margin-top:8px"><button class="btn btn-gold btn-sm" data-a="unkopen">Ποια συσκευή είναι;</button><button class="btn btn-ghost btn-sm" data-a="unkignore">Αγνόησε</button></div><a class="linkbtn" style="display:inline-block;margin-top:6px" target="_blank" rel="noopener" href="https://www.google.com/search?q=%22'+encodeURIComponent(code)+'%22">🔎 Ψάξε το barcode στο Google</a>'];say("Άγνωστο barcode");paint()}
 /* Μεγάλες συσκευές: κάθε κουτί μετριέται με barcode + σειριακό (μοναδικός ανά κουτί) */
 /* Μοντέλα εσωτερικής / εξωτερικής από το όνομα: «WFIN-35164 / 35165», «NRI-09WFI/NRO-09» */
 function acModels(p){const m=String(modelOf(p)||"");const nm=String(p.n||"");const mm=/([A-Z0-9][A-Z0-9\-]*\d[A-Z0-9\-]*)\s*\/\s*([A-Z0-9][A-Z0-9\-]*)/i.exec(nm);if(mm)return [mm[1],mm[2]];return [m,""]}
@@ -586,7 +589,7 @@ function countHit(code,fmt,direct){
     const newSn=sns.find(z=>!V.cart.some(x=>(x.sn||[]).includes(z)))||null;
     /* ίδιο barcode με το αμέσως προηγούμενο κουτί → ρωτάει, δεν μαντεύει */
     if(V.last&&V.last.code===k&&!newSn&&V.cart.some(x=>x.p===V.last.p&&x.q>0)){beepBad();const am=acModels(p),pt=part==="i"?"εσωτερική "+(am[0]||""):part==="o"?"εξωτερική "+(am[1]||""):modelOf(p);V.msg=["warn",'<b>Ξανά το ίδιο barcode</b> ('+esc(pt)+').<br><span style="font-weight:500">Είναι το ίδιο κουτί ή άλλο ίδιο κουτί;</span><div class="row" style="gap:6px;margin-top:8px"><button class="btn btn-gold btn-sm" data-a="cplus" data-v="'+p.id+'|'+(part||"")+'">Άλλο κουτί · +1</button><button class="btn btn-ghost btn-sm" data-a="msgclr">Το ίδιο · μην το μετράς</button></div>'];say("Ίδιο κουτί;");paint();return}
-    countAdd(p,part,code,newSn);V.last={code:k,p:p.id,part};acMsg(p,part);return}
+    countAdd(p,part,code,newSn);V.last={code:k,p:p.id,part,sn:newSn||null};acMsg(p,part);return}
   countAdd(p,part,code,null);
 }
 function countAdd(p,part,code,sn){beepOk();fx(true);V.lastAdd=part?null:p.id;let c=V.cart.find(x=>x.p===p.id);
@@ -594,12 +597,13 @@ function countAdd(p,part,code,sn){beepOk();fx(true);V.lastAdd=part?null:p.id;let
   if(part)acAdd(c,part,1);else c.q++;
   const k=normC(code);if(k&&!k.startsWith("#"))c.codes=[...new Set([...(c.codes||[]),k])];if(sn)c.sn=[...(c.sn||[]),sn];
   V.fresh=p.id;say(part==="i"?"εσωτερική":part==="o"?"εξωτερική":brandOf(p)+", "+c.q);
-  V.msg=["flash",flashHTML(p,c.q,(sn?'σειριακός '+esc(sn)+' ✓':'')+(c.ac?(sn?'<br>':'')+acTxt(c):''))];saveDraft();paint()}
+  V.msg=["flash",flashHTML(p,c.q,(sn?'S/N '+esc(sn)+' ✓':(isBig(p)?'<span style="color:var(--muted)">Προαιρετικά: σκάναρε και το S/N του κουτιού</span>':''))+(c.ac?'<br>'+acTxt(c):''))];saveDraft();paint()}
 /* μήνυμα μετά από κουτί κλιματιστικού: σετ κλειστό ή τι λείπει */
 function acMsg(p,part){if(!part||part==="s")return;const c=V.cart.find(x=>x.p===p.id);if(!c)return;const [mi,mo]=acModels(p),sets=Math.min(c.qi||0,c.qo||0)+(c.qs||0),d=(c.qi||0)-(c.qo||0);
   const fix='<div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" data-a="lastflip">Λάθος: είναι '+(part==="i"?"εξωτερική":"εσωτερική")+'</button><button class="btn btn-ghost btn-sm" data-a="lastwrong">Λάθος προϊόν</button><button class="btn btn-ghost btn-sm" data-a="undolast">Αφαίρεσέ το</button></div>';
-  if(d===0){V.msg=["ok",'<b>✓ Σετ ολοκληρώθηκε</b> · '+esc(modelOf(p))+'<br><span style="font-weight:500">Σετ αυτού του μοντέλου: '+sets+'. Σκάναρε το επόμενο κουτί.</span>'+fix];say("Σετ "+sets)}
-  else{const need=d>0?"ΕΞΩΤΕΡΙΚΗ":"ΕΣΩΤΕΡΙΚΗ",txt=d>0?mo:mi;V.msg=["warn",'<b>✓ '+(part==="i"?"Εσωτερική":"Εξωτερική")+' '+esc(part==="i"?mi:mo||modelOf(p))+'</b><br>Τώρα σκάναρε την <b>'+need+'</b> για να κλείσει το σετ'+(txt?' · το κουτί γράφει <b>'+esc(txt)+'</b>':'')+'.'+(Math.abs(d)>1?'<br><span style="font-weight:600">Μισά σετ αυτού του μοντέλου: '+Math.abs(d)+'</span>':'')+fix];say("Τώρα η "+(d>0?"εξωτερική":"εσωτερική"))}
+  const snh=V.last&&!V.last.sn?'<br><span style="font-weight:500;color:var(--muted)">Προαιρετικά: σκάναρε και το S/N αυτού του κουτιού.</span>':'';
+  if(d===0){V.msg=["ok",'<b>✓ Σετ ολοκληρώθηκε</b> · '+esc(modelOf(p))+'<br><span style="font-weight:500">Σετ αυτού του μοντέλου: '+sets+'. Σκάναρε το επόμενο κουτί.</span>'+snh+fix];say("Σετ "+sets)}
+  else{const need=d>0?"ΕΞΩΤΕΡΙΚΗ":"ΕΣΩΤΕΡΙΚΗ",txt=d>0?mo:mi;V.msg=["warn",'<b>✓ '+(part==="i"?"Εσωτερική":"Εξωτερική")+' '+esc(part==="i"?mi:mo||modelOf(p))+'</b><br>Τώρα σκάναρε την <b>'+need+'</b> για να κλείσει το σετ'+(txt?' · το κουτί γράφει <b>'+esc(txt)+'</b>':'')+'.'+snh+(Math.abs(d)>1?'<br><span style="font-weight:600">Μισά σετ αυτού του μοντέλου: '+Math.abs(d)+'</span>':'')+fix];say("Τώρα η "+(d>0?"εξωτερική":"εσωτερική"))}
   paint()}
 function lockDone(sn){const L=V.lock;if(!L)return;V.lockAsk=0;const p=P(L.p);
   if(sn){const own=V.cart.find(x=>(x.sn||[]).includes(sn));if(own){V.lock=null;beepBad();V.msg=["info",'<b>Αυτό το κουτί το μέτρησες ήδη</b> (σειριακός '+esc(sn)+'). Δεν μετρήθηκε ξανά. Σκάναρε το επόμενο κουτί.'];say("Ήδη μετρημένο");paint();return}}
@@ -736,7 +740,7 @@ function cartRow(c,i){const p=c.nw?{n:"Νέα συσκευή"+(c.model?" · "+c.
 SCR.unknown=()=>{
   const sg=suggestFor(V.unknown);
   return '<div class="msg m-warn">'+I.warn+'<div>Νέο barcode <b>'+esc(V.unknown)+'</b><br><span style="font-weight:500">Το λες μία φορά, μετά το αναγνωρίζει πάντα.</span></div></div>'+
-  '<h1>Ποια συσκευή είναι;</h1><div class="sub">'+(V.kind==="count"?'Διάλεξε από τη λίστα ή γράψε λίγα γράμματα του μοντέλου για φίλτρο'+(sg.brand?' (μάλλον <b>'+esc(sg.brand.toUpperCase())+'</b>)':'')+'.':'Γράψε το <b>μοντέλο όπως είναι τυπωμένο στο κουτί</b> (τουλάχιστον 3 χαρακτήρες)'+(sg.brand?'. Μάλλον είναι <b>'+esc(sg.brand.toUpperCase())+'</b>.':'.'))+'</div>'+
+  '<a class="linkbtn" target="_blank" rel="noopener" href="https://www.google.com/search?q=%22'+encodeURIComponent(V.unknown)+'%22">🔎 Ψάξε το barcode στο Google για να δεις το μοντέλο</a><h1>Ποια συσκευή είναι;</h1><div class="sub">'+(V.kind==="count"?'Διάλεξε από τη λίστα ή γράψε λίγα γράμματα του μοντέλου για φίλτρο'+(sg.brand?' (μάλλον <b>'+esc(sg.brand.toUpperCase())+'</b>)':'')+'.':'Γράψε το <b>μοντέλο όπως είναι τυπωμένο στο κουτί</b> (τουλάχιστον 3 χαρακτήρες)'+(sg.brand?'. Μάλλον είναι <b>'+esc(sg.brand.toUpperCase())+'</b>.':'.'))+'</div>'+
   '<input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="π.χ. OMR58" autocomplete="off" autocapitalize="characters" spellcheck="false">'+msgHTML()+
   '<div class="list" id="dyn">'+DYN.unknown()+'</div>'+
   '<div class="dock"><button class="btn btn-ghost" data-a="newdev2">Δεν υπάρχει στο site · είναι καινούρια</button><button class="btn btn-ghost" data-a="unkpark">Δεν το βρίσκω · συνέχισε, θα το δει ο διαχειριστής</button></div>'};
