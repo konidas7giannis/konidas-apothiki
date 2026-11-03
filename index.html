@@ -457,7 +457,7 @@ let cand=null,serBuf=[];
 function noteSerials(r){const now=Date.now();for(const x of r||[]){const v=String(x.rawValue||"").trim();if(!RETAIL.includes(x.format)&&x.format!=="qr_code"&&v.length>=6&&!byCode(v)&&!whCode(v))serBuf.push({v,at:now})}serBuf=serBuf.filter(z=>now-z.at<2500).slice(-30)}
 function hitCam(code,fmt){code=String(code||"").trim();const now=Date.now();if(RETAIL.includes(fmt)&&!eanOk(code))return;
   /* γνωστό barcode: 2 ίδιες αναγνώσεις · άγνωστο: 3 ίδιες, για να μη «πιάνει» κουτιά που απλώς περνάνε */
-  const need=(byCode(code)||whCode(code)||API_RE.test(code))?2:3;
+  const need=2;
   if(cand&&cand.code===code&&now-cand.at<1500){cand.n++;cand.at=now;if(cand.n>=need){cand=null;hit(code,fmt)}return}cand={code,at:now,n:1}}
 const isRetail=f=>/^(EAN|UPC)/.test(f||"");
 function stopCam(){scanning=false;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
