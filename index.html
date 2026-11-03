@@ -263,6 +263,9 @@ function applyOp(st,o){
   else if(o.op==="addProduct"){if(!st.P.some(x=>x.id===String(o.p.id)))st.P.push({id:String(o.p.id),n:o.p.n,m:o.p.code||"",e:o.p.ean||"",x:[]})}
   else if(o.op==="addUnk"){st.unk=st.unk||[];if(!st.unk.some(u=>u.code===o.u.code))st.unk.push(o.u)}
   else if(o.op==="delUnk"){st.unk=(st.unk||[]).filter(u=>u.code!==o.code)}
+  else if(o.op==="task"){st.tasks=st.tasks||[];if(!st.tasks.some(t=>t.id===o.id))st.tasks.push({id:o.id,t:Date.now(),u:S.user,p:o.p||"",text:o.text})}
+  else if(o.op==="taskDone"){st.tasks=(st.tasks||[]).filter(t=>t.id!==o.id)}
+  else if(o.op==="setUser"){const u=(st.users||[]).find(x=>x.name===o.name);if(u)u.active=!!o.active}
   else if(o.op==="eod"){st.eod=st.eod||{};st.eod[o.d]=st.eod[o.d]||(S.user||"")}
   else if(o.op==="sync"||o.op==="unsync"){st.mv.forEach(m=>{if(o.ids.includes(m.id)){if(o.op==="sync")m.syn=Date.now();else delete m.syn}});st.site=Object.assign({},st.site,o.site)}
   else if(o.op==="setEan"){const p=st.P.find(x=>x.id===String(o.pid));if(p&&!p.e){p.e=String(o.code);p.x=(p.x||[]).filter(c=>c!==String(o.code))}}
@@ -274,7 +277,8 @@ let syncing=false,flushT=null,lastPull=0;
 const num=v=>v===undefined||v===""?undefined:Number(v);
 function normMove(m){const o=Object.assign({},m);["t","q","syn","x","invAt","nw"].forEach(k=>{if(o[k]!==undefined)o[k]=num(o[k]);if(o[k]===undefined)delete o[k]});if(o.p==="")delete o.p;return o}
 function absorb(r){codeIdx=null;
-  if(r.products)S.P=r.products.map(p=>({id:String(p.id),n:p.n||"",m:p.code||"",e:p.ean||"",x:p.x?String(p.x).split(",").filter(Boolean):[]}));
+  if(r.products)S.P=r.products.map(p=>({id:String(p.id),n:p.n||"",m:p.code||"",e:p.ean||"",x:p.x?String(p.x).split(",").filter(Boolean):[],img:p.img?(/^https?:/.test(p.img)?p.img:"https://www.konidas.gr"+p.img):"",c:p.cost!==undefined&&p.cost!==""?Number(p.cost):null,pr:p.price!==undefined&&p.price!==""?Number(p.price):null}));
+  S.tasks=r.tasks||[];S.users=r.users||[];S.beat=r.beat||null;
   const site={};Object.keys(r.site||{}).forEach(id=>{site[id]={};Object.keys(r.site[id]).forEach(w=>{const q=Number(r.site[id][w]);if(q)site[id][w]=q})});S.site=site;
   S.mv=(r.moves||[]).map(normMove);S.unk=(r.unk||[]).map(u=>Object.assign({},u,{t:Number(u.t)}));
   S.ver=r.ver;S.pver=r.pver;S.role=r.role;S.eod=r.eod||{};
@@ -322,7 +326,11 @@ const V={scr:SETUP?"setup":S.user&&(!LIVE||S.pin)?"home":"who"};
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const P=id=>S.P.find(p=>p.id===id);
 /* Αναγνώριση: barcode του site, barcode που έχει «μάθει» η εφαρμογή, ή ο κωδικός προμηθευτή (π.χ. 12NC της Whirlpool) */
-const normC=c=>String(c||"").replace(/[\s.\-\/]/g,"").replace(/^0+(?=\d{8,})/,"").toUpperCase();
+const normC=c=>String(c||"").split("@")[0].replace(/[\s.\-\/]/g,"").replace(/^0+(?=\d{8,})/,"").toUpperCase();
+/* κλιματιστικά: κάθε κουτί ξέρει αν είναι εσωτερική (i), εξωτερική (o) ή σετ (s) */
+const isAC=p=>/BTU|κλιματισ|inverter|split/i.test(p.n||"");
+function partTag(p,code){const k=normC(code);const t=(p.x||[]).find(x=>String(x).includes("@")&&normC(x)===k);return t?String(t).split("@")[1]:null}
+const SQ=()=>isAdmin(); /* ποσότητες και τιμές μόνο για διαχειριστές */
 let codeIdx=null,codeIdxN=-1;
 function byCode(c){const k=normC(c);if(!k)return null;
   if(!codeIdx||codeIdxN!==S.P.length+S.P.reduce((a,p)=>a+(p.x||[]).length,0)){codeIdx=new Map();codeIdxN=S.P.length+S.P.reduce((a,p)=>a+(p.x||[]).length,0);
@@ -341,8 +349,8 @@ function searchP(q,lim,pref){const ts=tokens(q);if(!ts.length)return [];const ou
 /* Μάθηση από τα barcode που ήδη ξέρουμε: τα πρώτα ψηφία του EAN δείχνουν την εταιρεία */
 const brandOf=p=>String(p.n||"").trim().split(/\s+/)[0].toLowerCase();
 function guessBrand(code){const c=normC(code);if(!/^\d{12,13}$/.test(c))return null;
-  for(const L of [8,7,6]){const cnt={};for(const p of S.P){for(const e of [p.e,...(p.x||[])]){const n=normC(e);if(n&&n.length>=12&&n.slice(0,L)===c.slice(0,L)){const b=brandOf(p);cnt[b]=(cnt[b]||0)+1}}}
-    const best=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];if(best&&best[1]>=2)return best[0]}return null}
+  for(const L of [8,7]){const cnt={};for(const p of S.P){for(const e of [p.e,...(p.x||[])]){const n=normC(e);if(n&&n.length>=12&&n.slice(0,L)===c.slice(0,L)){const b=brandOf(p);cnt[b]=(cnt[b]||0)+1}}}
+    const ent=Object.entries(cnt).sort((a,b)=>b[1]-a[1]),best=ent[0],all=ent.reduce((s,x)=>s+x[1],0);if(best&&best[1]>=3&&best[1]>=all*0.8)return best[0]}return null}
 function suggestFor(code){const b=guessBrand(code);if(!b)return {brand:null,list:[]};const pref=V.kind==="move"&&V.from!=="SUP"?V.from:V.kind==="count"?V.cw:null;
   const l=S.P.filter(p=>brandOf(p)===b&&!p.e&&!(p.x||[]).length).map(p=>[pref?lq(p.id,pref):tot(p.id),p]).filter(x=>V.kind==="move"&&V.from==="SUP"?true:x[0]>0).sort((a,b)=>b[0]-a[0]).slice(0,8).map(x=>x[1]);
   return {brand:b,list:l}}
@@ -428,9 +436,9 @@ async function startCam(){
 }
 async function loop(vid){
   while(scanning&&document.getElementById("vid")===vid){
-    if(seen&&Date.now()-seen.at>1200)seen=null;
+    if(seen&&Date.now()-seen.at>1500)seen=null;
     if(Date.now()>pauseUntil&&vid.readyState>=2&&!document.hidden){
-      try{const r=await detector.detect(vid);if(r&&r.length&&scanning){const best=pickBest(r);if(best)hitCam(best.rawValue,best.format)}else if(scanning){seen=null;cand=null}}catch(e){}
+      try{const r=await detector.detect(vid);if(r&&r.length&&scanning){noteSerials(r);const best=pickBest(r);if(best)hitCam(best.rawValue,best.format)}else if(scanning){cand=null}}catch(e){}
     }
     await new Promise(r=>setTimeout(r,90));
   }
@@ -440,8 +448,13 @@ const RETAIL=["ean_13","ean_8","upc_a","upc_e"];
 function eanOk(c){c=String(c||"");if(!/^(\d{8}|\d{12}|\d{13})$/.test(c))return false;const d=c.split("").map(Number),k=d.pop();let s=0;d.reverse().forEach((x,i)=>{s+=x*(i%2===0?3:1)});return (10-(s%10))%10===k}
 function pickBest(r){r=r.filter(x=>!RETAIL.includes(x.format)||eanOk(String(x.rawValue).trim()));const known=r.find(x=>byCode(String(x.rawValue).trim()));return known||r.find(x=>RETAIL.includes(x.format))||r.find(x=>x.format==="qr_code")||r[0]||null}
 /* Όπως τα επαγγελματικά σκάνερ: δεκτό μόνο αν διαβαστεί ίδιο σε 2 διαδοχικά καρέ */
-let cand=null;
-function hitCam(code,fmt){code=String(code||"").trim();const now=Date.now();if(RETAIL.includes(fmt)&&!eanOk(code))return;if(cand&&cand.code===code&&now-cand.at<800){cand=null;hit(code,fmt);return}cand={code,at:now}}
+let cand=null,serBuf=[];
+/* Σειριακοί αριθμοί που φαίνονται στο ίδιο κάδρο με το barcode: είναι μοναδικοί ανά κουτί */
+function noteSerials(r){const now=Date.now();for(const x of r||[]){const v=String(x.rawValue||"").trim();if(!RETAIL.includes(x.format)&&x.format!=="qr_code"&&v.length>=6&&!byCode(v)&&!whCode(v))serBuf.push({v,at:now})}serBuf=serBuf.filter(z=>now-z.at<2500).slice(-30)}
+function hitCam(code,fmt){code=String(code||"").trim();const now=Date.now();if(RETAIL.includes(fmt)&&!eanOk(code))return;
+  /* γνωστό barcode: 2 ίδιες αναγνώσεις · άγνωστο: 3 ίδιες, για να μη «πιάνει» κουτιά που απλώς περνάνε */
+  const need=(byCode(code)||whCode(code)||API_RE.test(code))?2:3;
+  if(cand&&cand.code===code&&now-cand.at<1500){cand.n++;cand.at=now;if(cand.n>=need){cand=null;hit(code,fmt)}return}cand={code,at:now,n:1}}
 const isRetail=f=>/^(EAN|UPC)/.test(f||"");
 function stopCam(){scanning=false;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
 function whCode(c){const m=/^KONIDAS-WH-([A-Z]+)$/.exec(String(c||"").trim());return m&&NAMES[m[1]]?m[1]:null}
@@ -450,7 +463,7 @@ function hit(code,fmt){
   const now=Date.now();
   /* Το ίδιο κουτί που μένει μπροστά στην κάμερα δεν μετριέται δεύτερη φορά.
      Ίδιο barcode ξαναμετράει μόνο αν έφυγε από την κάμερα για 1,2" (= επόμενο κουτί). */
-  if(seen&&seen.code===code){seen.at=now;return}
+  if(seen&&seen.code===code&&now-seen.at<1500){seen.at=now;return}
   if(code===lastCode&&now-lastAt<1200){lastAt=now;seen={code,at:now};return}
   seen={code,at:now};lastCode=code;lastAt=now;pauseUntil=now+450;
   const w=whCode(code);if(w&&V.onScan!==whHit&&V.onScan!==setupHit){whSeen(w);return}
@@ -488,48 +501,86 @@ labelIn.addEventListener("change",async()=>{const f=labelIn.files&&labelIn.files
 function saveDraft(){if(V.kind){S.draft={kind:V.kind,from:V.from,to:V.to,cw:V.cw,cart:V.cart,doc:V.doc,t:Date.now(),u:S.user}}else S.draft=null;save()}
 function clearDraft(){V.kind=null;V.cart=[];V.from=V.to=V.cw=V.doc=null;S.draft=null;save()}
 function resumeDraft(){const d=S.draft;if(!d)return;Object.assign(V,{kind:d.kind,from:d.from,to:d.to,cw:d.cw,cart:d.cart||[],doc:d.doc});V.onScan=d.kind==="count"?countHit:addHit;lastCode="";go(d.kind==="count"?"countscan":"scan")}
-function startMove(f,to){V.kind="move";V.from=f;V.to=to;V.cart=[];V.doc=null;V.dq=null;V.dnote="";V.dupok=0;V.onScan=addHit;lastCode="";saveDraft();go("scan")}
+function startMove(f,to){V.kind="move";V.from=f;V.to=to;V.cart=[];V.doc=null;V.dq=null;V.dnote="";V.dupok=0;V.acok=0;V.onScan=addHit;lastCode="";saveDraft();go("scan")}
 
 function avail(pid,need){
   const f=V.from,to=V.to,p=P(pid);
   if(f==="SUP"||f==="CUS")return{ok:true};
   const here=lq(pid,f),res=to==="CUS"?lq(pid,"PARAGGELIA"):0;
   if(need<=here+res)return{ok:true,res:res>0?custOf(pid):null};
-  let why="<b>"+esc(p.n)+"</b>: στο "+esc(NAMES[f])+" υπάρχουν "+here+(need>1?" και έχεις ήδη "+(need-1)+" στη λίστα":"")+". Δεν προστέθηκε.";
+  let why=SQ()?"<b>"+esc(p.n)+"</b>: στο "+esc(NAMES[f])+" υπάρχουν "+here+(need>1?" και έχεις ήδη "+(need-1)+" στη λίστα":"")+". Δεν προστέθηκε.":"<b>"+esc(p.n)+"</b>: κατά το σύστημα δεν υπάρχει "+(need>1?"άλλο ":"")+"στο "+esc(NAMES[f])+". Δεν προστέθηκε.";
   if(lq(pid,"PARAGGELIA")>0&&to!=="CUS")why+="<br>Είναι πουλημένο για "+esc(custOf(pid)||"πελάτη")+". Αν πηγαίνει στον πελάτη, διάλεξε ΠΡΟΣ: Πελάτης.";
   else if(here===0)why+="<br>Έλεγξε από ποια αποθήκη το πήρες.";
   return{ok:false,why};
 }
+function acAdd(c,part,n){if(part==="i")c.qi=Math.max(0,(c.qi||0)+n);else if(part==="o")c.qo=Math.max(0,(c.qo||0)+n);else c.qs=Math.max(0,(c.qs||0)+n);c.q=(c.qs||0)+Math.max(c.qi||0,c.qo||0)}
+function acQ(c,part,n){const t={qi:c.qi||0,qo:c.qo||0,qs:c.qs||0};if(part==="i")t.qi+=n;else if(part==="o")t.qo+=n;else t.qs+=n;return t.qs+Math.max(t.qi,t.qo)}
+const acBad=c=>c.ac&&(c.qi||0)!==(c.qo||0);
+function acTxt(c){if(!c||!c.ac)return "";const d=(c.qi||0)-(c.qo||0);return 'εσωτερικές '+(c.qi||0)+' · εξωτερικές '+(c.qo||0)+(c.qs?' · σετ '+c.qs:'')+(d?'<br><b style="color:var(--warn)">⚠ Λείπει '+Math.abs(d)+' '+(d>0?"εξωτερική":"εσωτερική")+' μονάδα — σκάναρέ την.</b>':' <b style="color:var(--ok)">✓ ζευγάρια σωστά</b>')}
 /* Μεγάλη κάρτα επιβεβαίωσης: μοντέλο με μεγάλα γράμματα, για σύγκριση με το κουτί */
 function flashHTML(p,n,extra){return '<div class="flash">'+(p.img?'<img class="thumb" src="'+esc(p.img)+'" alt="" style="width:64px;height:64px;object-fit:contain;background:#fff">':"")+'<div style="flex:1;min-width:0"><span class="mdl">'+esc(modelOf(p))+'</span><small>'+esc(p.n)+(n>1?' · <b>'+n+' τεμ.</b>':"")+'</small>'+(extra?'<small>'+extra+'</small>':"")+'</div><button class="btn btn-ghost btn-sm" data-a="undolast" style="flex:none">Όχι αυτό</button></div>'}
 let serT=0;
-function serialHint(code,fmt){const n=Date.now();if(n-serT<4000)return;serT=n;tone([[660,.07]]);V.msg=["info","Αυτό είναι σειριακός ή εσωτερικός κωδικός. Σκάναρε το barcode του προϊόντος (13 ψηφία, συνήθως δίπλα στο μοντέλο)."+(isAdmin()?' <button class="btn btn-ghost btn-sm" data-a="forceunk" data-v="'+esc(code)+'">Είναι ο κωδικός της συσκευής</button>':"")];paint()}
+function serialHint(code,fmt){const n=Date.now();
+  if(V.kind==="count"&&V.lock){lockDone(code);return}
+  if(V.kind==="count"){const own=V.cart.find(x=>(x.sn||[]).includes(code));
+    if(own){V.msg=["info",'Σειριακός <b>'+esc(code)+'</b>: αυτό το κουτί ('+esc(modelOf(P(own.p)))+') είναι ήδη μετρημένο ✓'];paint();return}
+    V.msg=["info",'Αυτός είναι <b>σειριακός</b>. Σκάναρε πρώτα το barcode του μοντέλου (13 ψηφία) και μετά τον σειριακό.'];paint();return}
+  if(n-serT<8000)return;serT=n;V.msg=["info","Αυτό είναι σειριακός ή εσωτερικός κωδικός. Σκάναρε το barcode του προϊόντος (13 ψηφία, συνήθως δίπλα στο μοντέλο)."+(isAdmin()?' <button class="btn btn-ghost btn-sm" data-a="forceunk" data-v="'+esc(code)+'">Είναι ο κωδικός της συσκευής</button>':"")];paint()}
 function addHit(code,fmt,direct){
   if(!direct){const all=byCodeAll(code);if(all.length>1){beepBad();V.dupCode=code;V.dupList=all.map(x=>x.id);go("pickdup");say("Διάλεξε μοντέλο");return}}
   const p=direct||byCode(code);
   if(!p){
     if(V.cart.some(c=>c.nw&&c.code===code)){beepBad();fx(false);V.msg=["warn","Αυτή η νέα συσκευή είναι ήδη στη λίστα. Για δεύτερη ίδια πάτα +."];paint();return}
     if(!isRetail(fmt)&&fmt!=="ΧΕΙΡΟΚΙΝΗΤΑ"){serialHint(code,fmt);return}
-    beepBad();fx(false);V.unknown=code;V.ufmt=fmt;V.q="";V.focus=1;go("unknown");return}
-  const c=V.cart.find(x=>x.p===p.id),have=c?c.q:0,forced=V.forceOk===p.id||(c&&c.chk);let a=avail(p.id,have+1);
+    unkAsk(code,fmt);return}
+  if(isAC(p)&&!V.partNow&&fmt==="ΧΕΙΡΟΚΙΝΗΤΑ")V.partNow="s";
+  if(isAC(p)&&!V.partNow){const tg=partTag(p,code);if(!tg){V.acCode=code;V.acFmt=fmt;V.acP=p.id;beepBad();V.msg=["warn",'<b>Ποιο κουτί του '+esc(modelOf(p))+' είναι αυτό;</b><br><span style="font-weight:500">Το ρωτάω μία φορά για κάθε barcode.</span><div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-gold btn-sm" data-a="acset" data-v="i">Εσωτερική</button><button class="btn btn-gold btn-sm" data-a="acset" data-v="o">Εξωτερική</button><button class="btn btn-ghost btn-sm" data-a="acset" data-v="s">Σετ σε 1 κουτί</button></div>'];say("Εσωτερική ή εξωτερική;");paint();return}V.partNow=tg}
+  const part=V.partNow;V.partNow=null;
+  const c=V.cart.find(x=>x.p===p.id),have=c?c.q:0,forced=V.forceOk===p.id||(c&&c.chk);
+  if(part&&c&&c.ac&&acQ(c,part,1)===c.q){acAdd(c,part,1);beepOk();fx(true);V.lastAdd=null;V.fresh=p.id;V.msg=["flash",flashHTML(p,c.q,acTxt(c))];say(part==="i"?"εσωτερική":part==="o"?"εξωτερική":brandOf(p));saveDraft();paint();return}
+  let a=avail(p.id,have+1);
   if(!a.ok&&!forced){beepBad();fx(false);V.msg=["bad",a.why+'<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" data-a="forceadd" data-v="'+p.id+'">Είναι σίγουρα εδώ · πρόσθεσέ το</button></div><small style="display:block;margin-top:4px;font-weight:500">Θα σημειωθεί για έλεγχο από τον διαχειριστή.</small>'];paint();return}
   if(!a.ok)a={ok:true};
   beepOk();fx(true);V.lastAdd=p.id;
-  if(c){c.q++;if(V.manual)c.man=1;if(forced)c.chk=1;V.fresh=p.id}else{V.cart.unshift({p:p.id,q:1,res:a.res,man:V.manual?1:0,chk:forced?1:0});V.fresh=p.id}
+  if(c){if(c.ac&&part)acAdd(c,part,1);else c.q++;if(V.manual)c.man=1;if(forced)c.chk=1;V.fresh=p.id}else{const n={p:p.id,q:1,res:a.res,man:V.manual?1:0,chk:forced?1:0};if(part){n.ac=1;n.qi=0;n.qo=0;n.qs=0;acAdd(n,part,1)}V.cart.unshift(n);V.fresh=p.id}
   const nq=c?c.q:1,rq=V.to==="CUS"?lq(p.id,"PARAGGELIA"):0;
   const rt=recentTxt(p.id);
+  {const cc=V.cart.find(x=>x.p===p.id);if(cc&&cc.ac){V.lastAdd=null;V.msg=["flash",flashHTML(p,cc.q,acTxt(cc))];say(part==="i"?"εσωτερική":part==="o"?"εξωτερική":brandOf(p));saveDraft();paint();return}}
   V.msg=["flash",flashHTML(p,nq,(a.res?"κράτηση "+esc(a.res):"")+(rq>0&&nq>rq?'<br><b style="color:var(--warn)">Σκάναρες '+nq+' αλλά η κράτηση είναι για '+rq+'.</b>':"")+(rt&&recentOf(p.id).some(sameRoute)?'<br><b style="color:var(--warn)">⚠ '+rt+'. Αν είναι το ίδιο κουτί, πάτα «Όχι αυτό».</b>':""))];
   say(brandOf(p)+(c?", "+c.q:""));
   saveDraft();paint();
 }
+function markUnit(c,code){if(!c)return;const k=normC(code);if(k&&!k.startsWith("#"))c.codes=[...new Set([...(c.codes||[]),k])];V.lastUnit={p:c.p,at:Date.now(),sn:V.snNow||null};if(V.snNow){c.sn=[...(c.sn||[]),V.snNow];V.snNow=null}}
+function unkAsk(code,fmt){if((V.ign||[]).includes(code))return;if(V.unknown===code&&V.msg&&String(V.msg[1]).includes("unkopen"))return;beepBad();fx(false);V.unknown=code;V.ufmt=fmt;V.q="";
+  V.msg=["warn",'<b>Άγνωστο barcode</b> '+esc(code)+'<br><span style="font-weight:500">Αν είναι το κουτί που μετράς, πες μου ποια συσκευή είναι. Αν το έπιασε κατά λάθος, αγνόησέ το.</span><div class="row" style="gap:6px;margin-top:8px"><button class="btn btn-gold btn-sm" data-a="unkopen">Ποια συσκευή είναι;</button><button class="btn btn-ghost btn-sm" data-a="unkignore">Αγνόησε</button></div>'];say("Άγνωστο barcode");paint()}
+/* Μεγάλες συσκευές: κάθε κουτί μετριέται με barcode + σειριακό (μοναδικός ανά κουτί) */
+const isBig=p=>isAC(p)||/ψυγ|καταψ|πλυντ|στεγν|κουζιν|κουζίν|φούρν|φουρν|εστί|εστι|απορροφ|τηλεόρ|τηλεορ|\btv\b|smart tv|oled|qled|θερμοσ|αφυγραντ|αντλία θερμ|ψυκτ|οινοθ/i.test(p.n||"");
 function countHit(code,fmt,direct){
+  if(!direct&&V.lock){const L=V.lock,k=normC(code);
+    if(k===L.code)return; /* το ίδιο κουτί ακόμα μπροστά στην κάμερα */
+    const kp=byCode(code);
+    if(isRetail(fmt)||kp){beepBad();V.msg=["warn",'Περιμένω τον <b>σειριακό</b> του '+esc(modelOf(P(L.p)))+'. Αυτό είναι barcode άλλου προϊόντος. Σκάναρε τον σειριακό ή πάτα «Δεν έχει σειριακό».'];paint();return}
+    lockDone(code);return}
   if(!direct){const all=byCodeAll(code);if(all.length>1){beepBad();V.dupCode=code;V.dupList=all.map(x=>x.id);go("pickdup");say("Διάλεξε μοντέλο");return}}
   const p=direct||byCode(code);
-  if(!p){if(!isRetail(fmt)&&fmt!=="ΧΕΙΡΟΚΙΝΗΤΑ"){serialHint(code,fmt);return}beepBad();fx(false);V.unknown=code;V.ufmt=fmt;V.q="";V.focus=1;go("unknown");return}
-  beepOk();fx(true);V.lastAdd=p.id;const c=V.cart.find(x=>x.p===p.id);if(c)c.q++;else V.cart.unshift({p:p.id,q:1});V.fresh=p.id;say(brandOf(p)+", "+(c?c.q:1));
-  V.msg=["flash",flashHTML(p,c?c.q:1,"")];saveDraft();paint();
+  if(!p){if(!isRetail(fmt)&&fmt!=="ΧΕΙΡΟΚΙΝΗΤΑ"){serialHint(code,fmt);return}unkAsk(code,fmt);return}
+  if(isAC(p)&&!V.partNow&&fmt==="ΧΕΙΡΟΚΙΝΗΤΑ")V.partNow="s";
+  if(isAC(p)&&!V.partNow){const tg=partTag(p,code);if(!tg){V.acCode=code;V.acFmt=fmt;V.acP=p.id;beepBad();V.msg=["warn",'<b>Ποιο κουτί του '+esc(modelOf(p))+' είναι αυτό;</b><br><span style="font-weight:500">Το ρωτάω μία φορά για κάθε barcode.</span><div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-gold btn-sm" data-a="acset" data-v="i">Εσωτερική</button><button class="btn btn-gold btn-sm" data-a="acset" data-v="o">Εξωτερική</button><button class="btn btn-ghost btn-sm" data-a="acset" data-v="s">Σετ σε 1 κουτί</button></div>'];say("Εσωτερική ή εξωτερική;");paint();return}V.partNow=tg}
+  const part=V.partNow;V.partNow=null;
+  if(!direct&&isBig(p)){V.lock={p:p.id,part,code:normC(code)};beepOk();fx(true);V.msg=null;say("Τώρα ο σειριακός");paint();return}
+  countAdd(p,part,code,null);
 }
+function countAdd(p,part,code,sn){beepOk();fx(true);V.lastAdd=part?null:p.id;let c=V.cart.find(x=>x.p===p.id);
+  if(!c){c=part?{p:p.id,q:0,ac:1,qi:0,qo:0,qs:0}:{p:p.id,q:0};V.cart.unshift(c)}
+  if(part)acAdd(c,part,1);else c.q++;
+  const k=normC(code);if(k&&!k.startsWith("#"))c.codes=[...new Set([...(c.codes||[]),k])];if(sn)c.sn=[...(c.sn||[]),sn];
+  V.fresh=p.id;say(part==="i"?"εσωτερική":part==="o"?"εξωτερική":brandOf(p)+", "+c.q);
+  V.msg=["flash",flashHTML(p,c.q,(sn?'σειριακός '+esc(sn)+' ✓':'')+(c.ac?(sn?'<br>':'')+acTxt(c):''))];saveDraft();paint()}
+function lockDone(sn){const L=V.lock;if(!L)return;V.lockAsk=0;const p=P(L.p);
+  if(sn){const own=V.cart.find(x=>(x.sn||[]).includes(sn));if(own){V.lock=null;beepBad();V.msg=["info",'<b>Αυτό το κουτί το μέτρησες ήδη</b> (σειριακός '+esc(sn)+'). Δεν μετρήθηκε ξανά. Σκάναρε το επόμενο κουτί.'];say("Ήδη μετρημένο");paint();return}}
+  V.lock=null;countAdd(p,L.part,L.code,sn)}
 function commitMove(){
+  if(V.cart.some(acBad)&&!V.acok){V.msg=["bad","Κάποιο κλιματιστικό δεν έχει και τις δύο μονάδες. Σκάναρε τη μονάδα που λείπει ή επιβεβαίωσε (πάνω από το κουμπί)."];render();return}
   if(dupLines().length&&!V.dupok){V.msg=["bad","Επιβεβαίωσε ότι δεν είναι διπλό πέρασμα (πάνω από το κουμπί)."];render();return}
   if(V.from==="SUP"&&!V.dq){V.msg=["bad","Απάντησε αν τα τεμάχια συμφωνούν με το δελτίο αποστολής."];render();return}
   if(V.from==="SUP"&&V.dq==="diff"&&!(V.dnote||"").trim()){V.msg=["bad","Γράψε τι διαφέρει από το δελτίο, για να το ελέγξει ο Γιάννης."];render();return}
@@ -571,10 +622,10 @@ function paint(){ /* ενημέρωση χωρίς να ξαναξεκινά η 
 }
 function go(s,keepMsg){if(!keepMsg)V.msg=null;V.scr=s;render();window.scrollTo(0,0)}
 const backBtn=to=>""; /* το «πίσω» είναι πάντα πάνω αριστερά στην μπάρα */
-function parentOf(s){const k=V.kind;return {pin:"who",from:"home",to:"from",scan:"home",unknown:k==="count"?"countscan":"scan",confirmlink:"unknown",newdev:"unknown",pickdup:k==="count"?"countscan":"scan",manual:k==="count"?"countscan":"scan",sum:"scan",sale:"home",sale2:"sale",count:"home",countscan:"home",countres:"countscan",find:"home",prod:"find",admin:"home",linkpick:"admin",scanwh:V.whT==="to"?"to":V.whT==="count"?"count":"from",done:"home"}[s]||null}
+function parentOf(s){const k=V.kind;return {pin:"who",from:"home",to:"from",scan:"home",unknown:k==="count"?"countscan":"scan",confirmlink:"unknown",newdev:"unknown",acpart:k==="count"?"countscan":"scan",pickdup:k==="count"?"countscan":"scan",manual:k==="count"?"countscan":"scan",sum:"scan",sale:"home",sale2:"sale",count:"home",countscan:"home",countres:"countscan",find:"home",prod:"find",admin:"home",linkpick:"admin",scanwh:V.whT==="to"?"to":V.whT==="count"?"count":"from",done:"home"}[s]||null}
 
 SCR.who=()=>'<div class="hello"><h1>Καλώς ήρθες</h1><div class="sub">Ποιος είσαι; Το επιλέγεις μία φορά, για να φαίνεται ποιος έκανε κάθε κίνηση.</div></div><div class="actions">'+
-  USERS.map(u=>'<button class="act" data-a="setuser" data-v="'+esc(u)+'"><div class="ic">'+I.user+'</div><div><b>'+esc(u)+'</b><span>'+(ADMINS.includes(u)?"όλες οι λειτουργίες":"μετακινήσεις, πωλήσεις, μετρήσεις")+'</span></div><div class="chev">'+I.chev+'</div></button>').join("")+'</div>';
+  USERS.map(u=>'<button class="act" data-a="setuser" data-v="'+esc(u)+'"><div class="ic">'+I.user+'</div><div><b>'+esc(u)+'</b></div><div class="chev">'+I.chev+'</div></button>').join("")+'</div>';
 
 SCR.setup=()=>'<div class="hello"><h1>Σύνδεση με το κατάστημα</h1><div class="sub">Σκάναρε το <b>QR καταστήματος</b> που σου έδωσε ο Γιάννης. Γίνεται μία φορά σε κάθε κινητό.</div></div>'+camHTML()+msgHTML();
 function setupHit(code){code=String(code||"").trim();if(API_RE.test(code)){try{localStorage.setItem("konidas_api",code)}catch(e){}beepOk();location.replace(location.pathname)}else{beepBad();fx(false);V.msg=["bad","Αυτό δεν είναι το QR καταστήματος."];paint()}}
@@ -598,6 +649,25 @@ function eodCard(){
   return '<div class="resume" style="border-color:var(--gold);display:block"><b>'+title+'</b> <span class="badge gold">'+plural(ms.length,"κίνηση","κινήσεις")+'</span><div class="muted" style="margin:4px 0 6px">'+sub+'</div>'+
     ms.slice(0,lim).map(eodLine).join("")+(ms.length>5?'<button class="btn btn-ghost btn-sm" style="margin-top:6px" data-a="eodall">'+(V.eodAll?"Λιγότερα":"Όλες ("+ms.length+")")+'</button>':"")+
     '<div class="row" style="margin-top:10px"><button class="btn btn-gold btn-sm" data-a="eodok" data-v="'+k+'">Ναι, όλα μέσα</button><button class="btn btn-ghost btn-sm" data-a="startmove">Λείπει κάτι</button></div></div>'}
+/* ---------- πίνακας αφεντικού ---------- */
+function resDue(m){if(m.due)return m.due;const x=/Παράδοση (\d{2})\/(\d{2})\/(\d{4})/.exec(m.note||"");return x?x[3]+"-"+x[2]+"-"+x[1]:""}
+function activeRes(){const out=[];for(const p of S.P){let n=lq(p.id,"PARAGGELIA");if(n<=0)continue;const rs=S.mv.filter(m=>m.p===p.id&&m.ty==="reserve"&&!m.x).sort((a,b)=>b.t-a.t);
+  for(const m of rs){if(n<=0)break;const k=Math.min(n,m.q);out.push({p,m,q:k,due:resDue(m)});n-=k}if(n>0)out.push({p,m:null,q:n,due:""})}
+  return out.sort((a,b)=>(a.due||"9")<(b.due||"9")?-1:1)}
+function decisions(){const today=dKey(new Date()),wk=Date.now()-14*DAY;
+  const nn=S.mv.filter(m=>m.nw&&!m.p&&!m.x).length+(S.unk||[]).length,
+    reps=S.mv.filter(m=>!m.x&&m.ty==="count"&&!m.p&&/^ΜΕΤΡΗΣΗ /.test(m.note||"")).length,
+    chk=S.mv.filter(m=>!m.x&&m.t>wk&&/ΕΛΕΓΧΟΣ|ΔΙΑΦΟΡΑ ΜΕ ΔΕΛΤΙΟ/.test(m.note||"")).length,
+    od=activeRes().filter(r=>r.due&&r.due<today).length,
+    dueToday=activeRes().filter(r=>r.due===today).length,
+    hold=S.P.filter(p=>lq(p.id,"XALASMENA")>0).length,
+    noinv=S.mv.filter(m=>!m.x&&m.ty==="receive"&&m.doc==="delt").length;
+  return [[od,["κράτηση καθυστερεί","κρατήσεις καθυστερούν"],"res","bad"],[dueToday,["παράδοση σήμερα","παραδόσεις σήμερα"],"res",""],[nn,["νέα συσκευή / άγνωστο barcode","νέες συσκευές / άγνωστα barcode"],"new",""],[reps,["μέτρηση υπαλλήλου για έλεγχο","μετρήσεις υπαλλήλων για έλεγχο"],"chk",""],[chk,["κίνηση σημειωμένη για έλεγχο","κινήσεις σημειωμένες για έλεγχο"],"chk","bad"],[hold,["χτυπημένο περιμένει απόφαση","χτυπημένα περιμένουν απόφαση"],"hold",""],[noinv,["παραλαβή χωρίς τιμολόγιο","παραλαβές χωρίς τιμολόγιο"],"chk",""],[(S.beat&&S.beat.conf||[]).length,["κίνηση δεν πέρασε στο site · θέλει απόφαση","κινήσεις δεν πέρασαν στο site · θέλουν απόφαση"],"site","bad"]].filter(x=>x[0]>0)}
+function syncLine(){const b=S.beat;if(!b||!b.t)return "";const age=Date.now()-Number(b.t),mn=Math.round(age/60000);const ok=age<5*60000&&!b.err;return '<div class="msg '+(ok?"m-ok":"m-warn")+'" style="margin:0">'+(ok?I.check+'<div>Site συγχρονισμένο · έλεγχος πριν '+(mn<1?"λίγο":mn+"′")+'</div>':I.warn+'<div>'+(b.err?esc(b.err):"Το αυτόματο πέρασμα στο site δεν τρέχει (τελευταία φορά πριν "+(mn<120?mn+"′":Math.round(mn/60)+" ώρες")+"). Άνοιξε το admin στον υπολογιστή και πάτα τον σελιδοδείκτη.")+'</div>')+'</div>'}
+function bossHTML(){const d=decisions(),today=dKey(new Date()),tm=dayMoves(today),sales=tm.filter(m=>m.ty==="deliver"&&m.to==="CUS"||m.ty==="reserve");
+  const by={};tm.forEach(m=>{by[m.u]=(by[m.u]||0)+1});
+  return syncLine()+'<div class="resume" style="display:block;border-color:var(--navy)"><b>Θέλει απόφασή σου</b>'+(d.length?'<div class="list" style="margin-top:8px;gap:6px">'+d.map(x=>'<button class="prow" data-a="boss" data-v="'+x[2]+'"><div><b style="'+(x[3]==="bad"?"color:var(--bad)":"")+'">'+x[0]+' '+esc(x[1][x[0]===1?0:1])+'</b></div>'+I.chev+'</button>').join("")+'</div>':'<div class="muted" style="margin-top:4px">✓ Τίποτα δεν περιμένει.</div>')+'</div>'+
+  '<div class="resume" style="display:block"><b>Σήμερα</b> <span class="muted">· '+plural(tm.length,"κίνηση","κινήσεις")+' · '+plural(sales.length,"πώληση","πωλήσεις")+'</span>'+(Object.keys(by).length?'<div class="muted" style="margin-top:6px">'+Object.entries(by).map(([u,n])=>esc(u)+': '+n).join(' · ')+'</div>':'')+(tm.length?'<div style="margin-top:6px">'+tm.slice(-3).reverse().map(eodLine).join("")+'</div><button class="btn btn-ghost btn-sm" style="margin-top:6px" data-a="boss" data-v="hist">Όλες οι κινήσεις</button>':'')+'</div>'}
 SCR.home=()=>{
   const d=S.draft,hr=new Date().getHours(),greet=hr<12?"Καλημέρα":hr<18?"Καλησπέρα":"Καλησπέρα";
   const first=(S.user||"").split(" ")[0];
@@ -606,6 +676,7 @@ SCR.home=()=>{
     h+='<div class="resume"><div><b>'+(d.kind==="count"?"Μέτρηση στη μέση · "+esc(NAMES[d.cw]):"Μετακίνηση στη μέση · "+esc(NAMES[d.from])+" → "+esc(NAMES[d.to]))+'</b><div class="muted">'+plural(n,"συσκευή","συσκευές")+' σκαναρισμένες · '+when(d.t)+'. Τίποτα δεν χάθηκε.</div></div><div class="row"><button class="btn btn-gold btn-sm" data-a="resume">Συνέχεια</button><button class="btn btn-ghost btn-sm" data-a="discard">Διαγραφή</button></div></div>'}
   if(S.last&&!(d&&d.cart&&d.cart.length))h+='<button class="quick" data-a="lastroute"><span class="ic" style="display:flex;color:var(--gold)">'+I.truck.replace('<svg','<svg width="26" height="26"')+'</span><span>Ίδια διαδρομή: '+esc(NAMES[S.last[0]])+' → '+esc(NAMES[S.last[1]])+'<small>πάτα και σκάναρε αμέσως</small></span></button>';
   h+=eodCard();
+  if(isAdmin())h+=bossHTML();
   h+='<div class="actions">'+
    '<button class="act primary" data-a="startmove"><div class="ic">'+I.truck+'</div><div><b>Μετακίνηση</b><span>φόρτωση · παραλαβή · παράδοση</span></div><div class="chev">'+I.chev+'</div></button>'+
    '<button class="act" data-a="startsale"><div class="ic">'+I.tag+'</div><div><b>Πώληση</b><span>το πήρε τώρα ή κράτηση</span></div><div class="chev">'+I.chev+'</div></button>'+
@@ -626,25 +697,29 @@ SCR.to=()=>{const f=V.from;
   const extra=f==="SUP"?'<button class="tile alt" data-a="pickto" data-v="PARAGGELIA"><div class="ti">'+I.tag+'</div><div><b>Ήταν πουλημένο</b><small>μπαίνει στην Παραγγελία</small></div></button>'
              :f==="CUS"?"":'<button class="tile alt" data-a="pickto" data-v="CUS"><div class="ti">'+I.user+'</div><div><b>Πελάτης</b><small>πουλήθηκε · φεύγει</small></div></button><button class="tile sup" data-a="pickto" data-v="SUP"><div class="ti">'+I.inbox+'</div><div><b>Προμηθευτής</b><small>επιστροφή στην εταιρεία</small></div></button>';
   return backBtn("from")+whBtn("to")+'<div class="steps"><i class="on"></i><i class="on"></i><i></i></div><div class="route"><span>'+esc(NAMES[f])+'</span><span class="ar">'+I.arrow+'</span><span style="opacity:.5">;</span></div><h1>Πού πάει;</h1>'+whTiles("pickto",[f],extra,f==="SUP")};
-SCR.scan=()=>'<div class="route"><div><span class="lbl">Από</span>'+esc(NAMES[V.from])+'</div><span class="ar">'+I.arrow+'</span><div><span class="lbl">Προς</span>'+esc(NAMES[V.to])+'</div></div>'+camHTML()+'<div id="dyn" style="display:contents">'+DYN.scan()+'</div>';
+const isFyl=()=>V.from==="FYLAXI"||V.to==="FYLAXI";
+SCR.scan=()=>'<div class="route"><div><span class="lbl">Από</span>'+esc(NAMES[V.from])+'</div><span class="ar">'+I.arrow+'</span><div><span class="lbl">Προς</span>'+esc(NAMES[V.to])+'</div></div>'+(isFyl()?'<div class="msg m-info">'+I.info+'<div>Η Φύλαξη είναι στον προμηθευτή, εκεί δεν σκανάρεις. Διάλεξε τη συσκευή από τη λίστα.</div></div><button class="btn btn-navy" data-a="manual">+ Πρόσθεσε συσκευή</button>':camHTML())+'<div id="dyn" style="display:contents">'+DYN.scan()+'</div>';
 DYN.scan=()=>{const n=cartN();
-  return '<div class="list" style="gap:10px">'+msgHTML()+(V.cart.length?V.cart.map(cartRow).join(""):'<div class="empty">Πέρνα τα κουτιά ένα ένα μπροστά από την κάμερα.<br>Ακούς «μπιπ» για κάθε συσκευή που μπαίνει.</div>')+'</div>'+
+  return '<div class="list" style="gap:10px">'+msgHTML()+(V.cart.length?V.cart.map(cartRow).join(""):(isFyl()?'<div class="empty">Πάτα «Πρόσθεσε συσκευή» για κάθε μοντέλο.</div>':'<div class="empty">Πέρνα τα κουτιά ένα ένα μπροστά από την κάμερα.<br>Ακούς «μπιπ» για κάθε συσκευή που μπαίνει.</div>'))+'</div>'+
   '<div class="dock"><button class="btn btn-ok" data-a="tosum"'+(n?"":" disabled")+'>'+I.check.replace('<svg','<svg width="22" height="22"')+'Τέλος · '+plural(n,"συσκευή","συσκευές")+'</button><button class="btn btn-ghost" data-a="cancelflow">Ακύρωση</button></div>'};
 function cartRow(c,i){const p=c.nw?{n:"Νέα συσκευή"+(c.model?" · "+c.model:""),m:c.code}:P(c.p);
-  return '<div class="item'+(V.fresh&&(c.p===V.fresh)&&i===V.cart.findIndex(x=>x.p===V.fresh)?" fresh":"")+'">'+(c.img?'<img class="thumb" src="'+c.img+'" alt="Ετικέτα">':"")+'<div class="t"><b>'+esc(p.n)+'</b><small>'+esc(p.m)+(c.res?' · κράτηση '+esc(c.res):"")+'</small></div><div class="qty"><button data-a="cq" data-i="'+i+'" data-v="-1" aria-label="Λιγότερα">−</button><span>'+c.q+'</span><button data-a="cq" data-i="'+i+'" data-v="1" aria-label="Περισσότερα">+</button></div><button class="rm" data-a="crm" data-i="'+i+'" aria-label="Αφαίρεση">'+I.x+'</button></div>'}
+  return '<div class="item'+(V.fresh&&(c.p===V.fresh)&&i===V.cart.findIndex(x=>x.p===V.fresh)?" fresh":"")+'">'+(c.img?'<img class="thumb" src="'+c.img+'" alt="Ετικέτα">':"")+'<div class="t"><b>'+esc(p.n)+'</b><small>'+esc(p.m)+(c.res?' · κράτηση '+esc(c.res):"")+'</small>'+(c.ac?'<small style="display:block">'+acTxt(c)+'</small>':"")+(V.qedit===i?qEditHTML(i):"")+'</div><div class="qty"><button data-a="cq" data-i="'+i+'" data-v="-1" aria-label="Λιγότερα">−</button><span data-a="qedit" data-i="'+i+'" style="cursor:pointer;text-decoration:underline dotted">'+c.q+'</span><button data-a="cq" data-i="'+i+'" data-v="1" aria-label="Περισσότερα">+</button></div><button class="rm" data-a="crm" data-i="'+i+'" aria-label="Αφαίρεση">'+I.x+'</button></div>'}
 
 SCR.unknown=()=>{
   const sg=suggestFor(V.unknown);
-  return '<div class="msg m-warn">'+I.warn+'<div>Νέο barcode για την εφαρμογή: <b>'+esc(V.unknown)+'</b><br><span style="font-weight:500">Πες της μία φορά ποια συσκευή είναι και θα το αναγνωρίζει πάντα, σε όλα τα κινητά.</span></div></div>'+
-  '<h1>Ποια συσκευή είναι;</h1><div class="sub">Γράψε το <b>μοντέλο όπως είναι τυπωμένο στο κουτί</b> (τουλάχιστον 3 χαρακτήρες)'+(sg.brand?'. Μάλλον είναι <b>'+esc(sg.brand.toUpperCase())+'</b>.':'.')+'</div>'+
+  return '<div class="msg m-warn">'+I.warn+'<div>Νέο barcode <b>'+esc(V.unknown)+'</b><br><span style="font-weight:500">Το λες μία φορά, μετά το αναγνωρίζει πάντα.</span></div></div>'+
+  '<h1>Ποια συσκευή είναι;</h1><div class="sub">'+(V.kind==="count"?'Διάλεξε από τη λίστα ή γράψε λίγα γράμματα του μοντέλου για φίλτρο'+(sg.brand?' (μάλλον <b>'+esc(sg.brand.toUpperCase())+'</b>)':'')+'.':'Γράψε το <b>μοντέλο όπως είναι τυπωμένο στο κουτί</b> (τουλάχιστον 3 χαρακτήρες)'+(sg.brand?'. Μάλλον είναι <b>'+esc(sg.brand.toUpperCase())+'</b>.':'.'))+'</div>'+
   '<input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="π.χ. OMR58" autocomplete="off" autocapitalize="characters" spellcheck="false">'+msgHTML()+
   '<div class="list" id="dyn">'+DYN.unknown()+'</div>'+
   '<div class="dock"><button class="btn btn-ghost" data-a="newdev2">Δεν υπάρχει στο site · είναι καινούρια</button><button class="btn btn-ghost" data-a="unkpark">Δεν το βρίσκω · συνέχισε, θα το δει ο διαχειριστής</button></div>'};
 DYN.unknown=()=>{const q=(V.q||"").trim();
+  if(V.kind==="count"&&V.cw){const b=guessBrand(V.unknown),ts=tokens(q);let L=cwList().filter(p=>!ts.length||ts.every(t=>normS(p.n+" "+p.m).includes(t)));L.sort((a,c)=>((b&&brandOf(c)===b)-(b&&brandOf(a)===b))||(V.cart.some(x=>x.p===a.id)-V.cart.some(x=>x.p===c.id)));
+    if(L.length)return '<div class="muted">Συσκευές που λέει το σύστημα ότι είναι στο '+esc(NAMES[V.cw])+'. Πάτα αυτή που γράφει το κουτί:</div>'+L.slice(0,40).map(p=>'<button class="prow" data-a="linkask" data-v="'+p.id+'"><div><span class="mdlbig">'+esc(modelOf(p))+'</span><small>'+esc(p.n)+(V.cart.some(x=>x.p===p.id)?' · ήδη μετρημένο':'')+'</small></div>'+I.chev+'</button>').join("")+(normS(q).length>=3?'<div class="muted" style="margin-top:8px">Από όλο το site:</div>'+searchP(q,10).filter(p=>!L.includes(p)).map(p=>'<button class="prow" data-a="linkask" data-v="'+p.id+'"><div><span class="mdlbig">'+esc(modelOf(p))+'</span><small>'+esc(p.n)+'</small></div>'+I.chev+'</button>').join(""):"")}
   if(normS(q).length<3)return '<div class="empty">Γράψε το μοντέλο από το κουτί για να σου δείξω τις συσκευές του site.</div>';
   const l=searchP(q,15);
   if(!l.length)return '<div class="empty">Καμία συσκευή του site δεν έχει «'+esc(q)+'». Έλεγξε τι γράφει το κουτί. Αν είναι καινούρια, πάτα «Δεν υπάρχει στο site».</div>';
-  return '<div class="muted">Πάτα αυτή που ταιριάζει ακριβώς με το κουτί:</div>'+l.map(p=>'<button class="prow" data-a="linkask" data-v="'+p.id+'"><div><span class="mdlbig">'+esc(modelOf(p))+'</span><small>'+esc(p.n)+' · '+(p.e?'έχει ήδη barcode':'χωρίς barcode')+' · απόθεμα '+tot(p.id)+'</small></div>'+I.chev+'</button>').join("")};
+  return '<div class="muted">Πάτα αυτή που ταιριάζει ακριβώς με το κουτί:</div>'+l.map(p=>'<button class="prow" data-a="linkask" data-v="'+p.id+'"><div><span class="mdlbig">'+esc(modelOf(p))+'</span><small>'+esc(p.n)+' · '+(p.e?'έχει ήδη barcode':'χωρίς barcode')+(SQ()?' · απόθεμα '+tot(p.id):'')+'</small></div>'+I.chev+'</button>').join("")};
+SCR.acpart=()=>{const p=P(V.acP);return '<h1>Ποιο κουτί είναι;</h1><div class="sub">Κλιματιστικό <b>'+esc(modelOf(p))+'</b>. Το ρωτάω μία φορά για κάθε barcode και το θυμάμαι, ώστε να μετράμε σωστά τα ζευγάρια.</div><div class="choice" style="grid-template-columns:1fr"><button class="opt" data-a="acset" data-v="i">Εσωτερική μονάδα<small>το κουτί του τοίχου</small></button><button class="opt" data-a="acset" data-v="o">Εξωτερική μονάδα<small>η μονάδα με τον ανεμιστήρα</small></button><button class="opt" data-a="acset" data-v="s">Ολόκληρο σετ σε ένα κουτί<small>π.χ. φορητό</small></button></div>'};
 SCR.pickdup=()=>'<div class="msg m-warn">'+I.warn+'<div>Το barcode <b>'+esc(V.dupCode)+'</b> το έχουν '+V.dupList.length+' συσκευές στο site.</div></div><h1>Ποιο γράφει το κουτί;</h1><div class="sub">Κοίτα το μοντέλο στην ετικέτα και πάτα το σωστό.</div><div class="list">'+
   V.dupList.map(id=>{const p=P(id);return '<button class="prow" data-a="dupick" data-v="'+p.id+'"><div><span class="mdlbig">'+esc(modelOf(p))+'</span><small>'+esc(p.n)+' · κωδ. '+esc(p.m||"–")+'</small></div>'+I.chev+'</button>'}).join("")+'</div>';
 
@@ -658,11 +733,13 @@ function whSeen(w){/* ταμπέλα σκαναρισμένη μέσα σε με
   else if(V.kind==="count"){if(w===V.cw){beepOk();V.msg=["ok","Σωστή αποθήκη: "+NAMES[w]]}else{beepBad();V.msg=["bad","Η ταμπέλα λέει "+esc(NAMES[w])+", αλλά μετράς "+esc(NAMES[V.cw])+"."]}paint()}}
 SCR.confirmlink=()=>{const p=P(V.lp);return '<h1>Τελευταίος έλεγχος</h1><div class="sub">Το barcode <b>'+esc(V.unknown)+'</b> θα συνδεθεί μόνιμα με:</div><div class="flash" style="flex-direction:column;align-items:flex-start"><span class="mdl" style="font-size:32px">'+esc(modelOf(p))+'</span><small>'+esc(p.n)+' · κωδ. '+esc(p.m||"–")+'</small></div><div class="sentence" style="text-align:center;margin-top:10px">Γράφει <b>ακριβώς αυτό</b> το μοντέλο στο κουτί;</div>'+
   '<div class="dock"><button class="btn btn-ok" data-a="link" data-v="'+p.id+'">'+I.check.replace('<svg','<svg width="22" height="22"')+'Ναι, ίδιο μοντέλο</button><button class="btn btn-bad" data-a="go" data-v="unknown">Όχι, διαφέρει</button></div>'};
-SCR.manual=()=>backBtn(V.kind==="count"?"countscan":"scan")+'<h1>Γράψε τον κωδικό</h1><div class="sub">Τα νούμερα κάτω από το barcode, ή το μοντέλο.</div><input class="search" id="auto" data-in="q" inputmode="text" value="'+esc(V.q||"")+'" placeholder="π.χ. 8806… ή TV55" autocomplete="off" autocapitalize="characters"><div class="list" id="dyn">'+DYN.manual()+'</div>';
+SCR.manual=()=>backBtn(V.kind==="count"?"countscan":"scan")+'<h1>'+(isFyl()?'Ποια συσκευή;':'Γράψε τον κωδικό')+'</h1><div class="sub">'+(isFyl()?'Γράψε μοντέλο ή όνομα.':'Τα νούμερα κάτω από το barcode, ή το μοντέλο.')+'</div><input class="search" id="auto" data-in="q" inputmode="text" value="'+esc(V.q||"")+'" placeholder="π.χ. 8806… ή TV55" autocomplete="off" autocapitalize="characters"><div class="list" id="dyn">'+DYN.manual()+'</div>';
 DYN.manual=()=>{const q=(V.q||"").trim();if(!q)return "";const l=searchP(q,30,V.kind==="move"&&V.from!=="SUP"?V.from:V.kind==="count"?V.cw:null);
   return l.map(p=>'<button class="prow" data-a="manualpick" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+' · '+esc(p.e)+'</small></div>'+I.chev+'</button>').join("")+
   (q.length>=4&&!l.length?'<button class="btn btn-navy" data-a="usecode">Χρήση κωδικού «'+esc(V.q.trim())+'»</button>':"")};
 
+function parseRep(m){const o={};String(m.note||"").replace(/^ΜΕΤΡΗΣΗ /,"").split(",").forEach(x=>{const[a,b]=x.split(":");if(a&&+b>0)o[a]=(o[a]||0)+(+b)});return o}
+function qEditHTML(i){return '<div class="row" style="margin-top:8px;gap:6px"><input id="qin" class="txt" style="width:90px;padding:8px;font-size:18px" inputmode="numeric" data-in="qv" value="'+esc(V.qv||"")+'" placeholder="πόσα;"><button class="btn btn-gold btn-sm" data-a="qset" data-i="'+i+'">Ορισμός</button><button class="btn btn-ghost btn-sm" data-a="qcancel">×</button></div><small style="display:block;margin-top:4px">Για παλέτες: μέτρησε τα κουτιά και γράψε τον αριθμό.</small>'}
 const sameRoute=m=>(m.f===V.from&&m.to===V.to)||(V.to==="CUS"&&m.ty==="deliver")||(V.from==="SUP"&&m.ty==="receive");
 function dupLines(){return V.cart.filter(c=>!c.nw&&recentOf(c.p).some(m=>sameRoute(m)&&m.q===c.q))}
 SCR.sum=()=>{const n=cartN(),f=V.from,to=V.to;const dups=dupLines();
@@ -670,56 +747,90 @@ SCR.sum=()=>{const n=cartN(),f=V.from,to=V.to;const dups=dupLines();
   const dq=f==="SUP"?'<h2>Τα τεμάχια συμφωνούν με το δελτίο αποστολής;</h2><div class="choice"><button class="opt'+(V.dq==="ok"?" sel":"")+'" data-a="dq" data-v="ok">Ναι, ίδια<small>τα μέτρησα</small></button><button class="opt'+(V.dq==="diff"?" sel":"")+'" data-a="dq" data-v="diff">Όχι<small>λείπει ή περισσεύει</small></button></div>'+(V.dq==="diff"?'<input class="txt" data-in="dnote" value="'+esc(V.dnote||"")+'" placeholder="τι διαφέρει; π.χ. το δελτίο λέει 3, ήρθαν 2" autocomplete="off">':""):"";
   const doc=dq+(f==="SUP"?'<h2>Ήρθε τιμολόγιο;</h2><div class="choice"><button class="opt'+(V.doc==="inv"?" sel":"")+'" data-a="doc" data-v="inv">Ναι, ήρθε<small>με τις τιμές</small></button><button class="opt'+(V.doc==="delt"?" sel":"")+'" data-a="doc" data-v="delt">Μόνο δελτίο<small>το τιμολόγιο έρχεται μετά</small></button></div>':"");
   return backBtn("scan")+'<div class="steps"><i class="on"></i><i class="on"></i><i class="on"></i></div><h1>Έλεγξε και επιβεβαίωσε</h1><div class="sentence">'+esc(s)+'.</div><div class="list">'+V.cart.map(c=>{const p=c.nw?{n:"Νέα συσκευή",m:c.code}:P(c.p);const rt=c.nw||!recentOf(c.p).some(sameRoute)?"":recentTxt(c.p);return '<div class="item"'+(rt?' style="border-color:var(--gold);background:#fffaf0"':"")+'>'+(c.img?'<img class="thumb" src="'+c.img+'" alt="">':"")+'<div class="t"><b>'+c.q+' × '+esc(p.n)+'</b><small>'+esc(p.m)+(c.res?' · κράτηση '+esc(c.res):"")+'</small>'+(rt?'<small style="display:block;color:var(--warn);font-weight:600">⚠ '+rt+'</small>':"")+'</div></div>'}).join("")+'</div>'+
-  (dups.length?'<div class="msg m-warn">'+I.warn+'<div><b>Μήπως έχει ήδη περαστεί;</b> Βρέθηκε ίδια κίνηση τις τελευταίες ώρες για '+plural(dups.length,"συσκευή","συσκευές")+'. Ρώτα πριν καταχωρήσεις.</div></div><div class="choice"><button class="opt'+(V.dupok?" sel":"")+'" data-a="dupok">Είναι νέα κίνηση<small>δεν έχει περαστεί</small></button><button class="opt" data-a="cancelflow">Είναι η ίδια<small>ακύρωση, να μη γίνει διπλό</small></button></div>':"")+doc+msgHTML()+
+  (V.cart.some(acBad)?'<div class="msg m-warn">'+I.warn+'<div><b>Κλιματιστικό χωρίς ζευγάρι:</b> '+V.cart.filter(acBad).map(c=>esc(modelOf(P(c.p)))+' ('+acTxt(c).replace(/<[^>]+>/g," ")+')').join(", ")+'</div></div><div class="choice"><button class="opt'+(V.acok?" sel":"")+'" data-a="acok">Είναι σωστό έτσι<small>π.χ. η άλλη μονάδα είναι ήδη εκεί</small></button><button class="opt" data-a="backscan">Πίσω να σκανάρω<small>τη μονάδα που λείπει</small></button></div>':"")+(dups.length?'<div class="msg m-warn">'+I.warn+'<div><b>Μήπως έχει ήδη περαστεί;</b> Βρέθηκε ίδια κίνηση τις τελευταίες ώρες για '+plural(dups.length,"συσκευή","συσκευές")+'. Ρώτα πριν καταχωρήσεις.</div></div><div class="choice"><button class="opt'+(V.dupok?" sel":"")+'" data-a="dupok">Είναι νέα κίνηση<small>δεν έχει περαστεί</small></button><button class="opt" data-a="cancelflow">Είναι η ίδια<small>ακύρωση, να μη γίνει διπλό</small></button></div>':"")+doc+msgHTML()+
   '<div class="dock"><button class="btn btn-ok" data-a="commit">'+I.check.replace('<svg','<svg width="22" height="22"')+'Σωστό, καταχώρηση</button><button class="btn btn-ghost" data-a="backscan">Όχι, πίσω στη λίστα</button></div>'};
 
 SCR.done=()=>'<div class="done"><div class="ck">'+I.check+'</div><h1>Καταχωρήθηκε</h1><div class="muted">'+esc(V.doneTxt||"")+'</div><div class="muted">'+esc(S.user)+' · '+when(Date.now())+'</div></div><div class="dock"><button class="btn btn-navy" data-a="go" data-v="home">Τέλος</button><button class="btn btn-bad" data-a="undobatch">Αναίρεση · έγινε λάθος</button></div>';
 
 /* Πώληση */
 SCR.sale=()=>backBtn("home")+'<h1>Τι πούλησες;</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="μοντέλο ή όνομα" autocomplete="off"><div class="list" id="dyn">'+DYN.sale()+'</div>';
-DYN.sale=()=>{const q=(V.q||"").trim();return (q?searchP(q,40):S.P.filter(p=>tot(p.id)>0).slice(0,40)).map(p=>'<button class="prow" data-a="salepick" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+'</small></div><span class="n">'+tot(p.id)+'<small>διαθέσιμα</small></span></button>').join("")};
+DYN.sale=()=>{const q=(V.q||"").trim();return (q?searchP(q,40):S.P.filter(p=>tot(p.id)>0).slice(0,40)).map(p=>'<button class="prow" data-a="salepick" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+'</small></div>'+availBadge(p)+'</button>').join("")};
+function availBadge(p){const n=tot(p.id);return n>0?(SQ()?'<span class="n">'+n+'<small>διαθέσιμα</small></span>':'<span class="n" style="color:var(--ok)">✓<small>υπάρχει</small></span>'):'<span class="n" style="color:var(--bad);font-size:13px;max-width:90px;text-align:right">δεν υπάρχει<small>μόνο με παραγγελία</small></span>'}
 SCR.sale2=()=>{const p=P(V.sp);
-  return backBtn("sale")+'<h1>'+esc(p.n)+'</h1><h2>Από ποια αποθήκη;</h2><div class="stock">'+WH.filter(w=>!w.virt).map(w=>{const q=lq(p.id,w.id);return '<button class="wh'+(q?"":" z")+(V.sf===w.id?" sel":"")+'" data-a="sf" data-v="'+w.id+'"'+(q?"":" disabled")+'><span>'+esc(w.n)+'</span><b>'+q+'</b></button>'}).join("")+'</div>'+
+  return backBtn("sale")+'<h1>'+esc(p.n)+'</h1><h2>Από ποια αποθήκη;</h2><div class="stock">'+WH.filter(w=>!w.virt).map(w=>{const q=lq(p.id,w.id);return '<button class="wh'+(q?"":" z")+(V.sf===w.id?" sel":"")+'" data-a="sf" data-v="'+w.id+'"'+(q?"":" disabled")+'><span>'+esc(w.n)+'</span><b>'+(SQ()?q:(q?"✓":"–"))+'</b></button>'}).join("")+'</div>'+(tot(p.id)>0?"":'<div class="msg m-bad">'+I.warn+'<div><b>Δεν υπάρχει διαθέσιμο.</b> Μην το πουλήσεις ως διαθέσιμο. Γράψ\' το ως παραγγελία από προμηθευτή (στις Παραγγελίες) και πες τον χρόνο παράδοσης στον πελάτη.</div></div>')+
   '<h2>Τι γίνεται με τη συσκευή;</h2><div class="choice"><button class="opt'+(V.sk==="now"?" sel":"")+'" data-a="sk" data-v="now">Το πήρε τώρα<small>βγαίνει αμέσως από το απόθεμα</small></button><button class="opt'+(V.sk==="later"?" sel":"")+'" data-a="sk" data-v="later">Παράδοση αργότερα<small>κράτηση μέχρι να φύγει</small></button></div>'+
-  '<h2>Πελάτης</h2><input class="txt" data-in="cust" value="'+esc(V.cust||"")+'" placeholder="όνομα και περιοχή" autocomplete="off">'+(recentTxt(p.id)?'<div class="msg m-warn">'+I.warn+'<div>'+recentTxt(p.id)+'. Μήπως έχει ήδη περαστεί;</div></div>':"")+msgHTML()+
+  '<h2>Πελάτης</h2><input class="txt" data-in="cust" value="'+esc(V.cust||"")+'" placeholder="όνομα και περιοχή" autocomplete="off">'+(V.sk==="later"?'<h2>Πότε παραδίδεται;</h2><input class="txt" type="date" data-in="due" value="'+esc(V.due||"")+'"><h2>Πληρωμή</h2><div class="choice" style="grid-template-columns:1fr 1fr 1fr"><button class="opt'+(V.pay==="full"?" sel":"")+'" data-a="pay" data-v="full">Εξοφλήθηκε</button><button class="opt'+(V.pay==="dep"?" sel":"")+'" data-a="pay" data-v="dep">Προκαταβολή</button><button class="opt'+(V.pay==="none"?" sel":"")+'" data-a="pay" data-v="none">Τίποτα ακόμα</button></div>'+(V.pay==="dep"?'<input class="txt" inputmode="decimal" data-in="dep" value="'+esc(V.dep||"")+'" placeholder="ποσό προκαταβολής σε €">':""):"")+(recentTxt(p.id)?'<div class="msg m-warn">'+I.warn+'<div>'+recentTxt(p.id)+'. Μήπως έχει ήδη περαστεί;</div></div>':"")+msgHTML()+
   '<div class="dock"><button class="btn btn-ok" data-a="salecommit">'+I.check.replace('<svg','<svg width="22" height="22"')+(V.sk==="now"?"Πουλήθηκε · βγαίνει από το απόθεμα":"Κράτηση για τον πελάτη")+'</button></div>'};
 
 /* Μέτρηση */
-SCR.count=()=>backBtn("home")+'<h1>Σε ποια αποθήκη μετράς;</h1>'+whBtn("count")+'<div class="sub">Μετά σκάναρε κάθε κουτί που βλέπεις. Στο τέλος σου δείχνει τι λείπει ή περισσεύει.</div>'+whTiles("countwh",[]);
+SCR.count=()=>backBtn("home")+'<h1>Σε ποια αποθήκη μετράς;</h1>'+whBtn("count")+'<div class="sub">Μετά σκάναρε κάθε κουτί που βλέπεις. Στο τέλος σου δείχνει τι λείπει ή περισσεύει.</div>'+whTiles("countwh",["FYLAXI"]);
 SCR.countscan=()=>'<div class="route"><div><span class="lbl">Μέτρηση</span>'+esc(NAMES[V.cw])+'</div></div>'+camHTML()+'<div id="dyn" style="display:contents">'+DYN.countscan()+'</div>';
-DYN.countscan=()=>{const n=cartN();return '<div class="list" style="gap:10px">'+msgHTML()+(V.cart.length?V.cart.map((c,i)=>{const p=P(c.p);return '<div class="item'+(c.p===V.fresh?" fresh":"")+'"><div class="t"><b>'+esc(p.n)+'</b><small>'+esc(p.m)+'</small></div><div class="qty"><button data-a="cq" data-i="'+i+'" data-v="-1">−</button><span>'+c.q+'</span><button data-a="cq" data-i="'+i+'" data-v="1">+</button></div></div>'}).join(""):'<div class="empty">Σκάναρε κάθε κουτί. Για πολλά ίδια, σκάναρε ένα και πάτα +.</div>')+'</div>'+
-  '<div class="dock"><button class="btn btn-ok" data-a="countend"'+(n?"":" disabled")+'>Τελείωσα · '+plural(n,"μετρημένο","μετρημένα")+'</button><button class="btn btn-ghost" data-a="cancelflow">Ακύρωση</button></div>'};
-SCR.countres=()=>{const w=V.cw;let bad=0;const rows=[];
-  for(const p of S.P){const sys=lq(p.id,w),c=V.cart.find(x=>x.p===p.id),n=c?c.q:0;if(!sys&&!n)continue;const d=n-sys;if(d)bad++;
-    rows.push('<tr><td>'+esc(p.n)+'</td><td>'+sys+'</td><td>'+n+'</td><td class="'+(d===0?"r-ok":d<0?"r-bad":"r-w")+'">'+(d===0?"✓":d<0?"λείπουν "+(-d):"+"+d)+'</td></tr>')}
-  return '<h1>Αποτέλεσμα · '+esc(NAMES[w])+'</h1>'+(bad?'<div class="msg m-warn">'+I.warn+'<div>'+plural(bad,"διαφορά","διαφορές")+'. Ξαναμέτρησε αυτές πριν διορθώσεις.</div></div>':'<div class="msg m-ok">'+I.check+'<div>Όλα συμφωνούν με το σύστημα.</div></div>')+
-  '<div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Σύστημα</th><th>Μέτρησα</th><th></th></tr></thead><tbody>'+rows.join("")+'</tbody></table></div>'+
-  '<div class="dock">'+(bad?(isAdmin()?'<div class="msg m-bad">'+I.warn+'<div>Η διόρθωση αλλάζει μόνο όσα σκάναρες. Για πλήρη απογραφή χρησιμοποίησε τη νέα έκδοση.</div></div><button class="btn btn-ok" data-a="countfix">Διόρθωσε μόνο όσα σκάναρα</button>':'<button class="btn btn-ok" data-a="countsend">Στείλε για έλεγχο</button>'):"")+'<button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button><button class="btn btn-ghost" data-a="countclose">Κλείσιμο</button></div>'};
+function acPending(){const c=V.cart.find(x=>x.ac&&(x.qi||0)!==(x.qo||0));return c||null}
+function cwList(){const w=V.cw;return S.P.filter(p=>lq(p.id,w)>0||V.cart.some(c=>c.p===p.id)).sort((a,b)=>(isAC(b)-isAC(a))||String(a.n).localeCompare(String(b.n)))}
+DYN.countscan=()=>{const n=cartN(),pend=acPending(),L=cwList(),done=L.filter(p=>V.cart.some(c=>c.p===p.id)).length,left=L.length-done;
+  let step;
+  if(V.lock){const L=V.lock,p=P(L.p),pt=L.part==="i"?" · εσωτερική":L.part==="o"?" · εξωτερική":"",again=(V.cart.find(x=>x.p===L.p)||{}).codes&&(V.cart.find(x=>x.p===L.p).codes||[]).includes(L.code);
+    step='<div class="msg m-warn" style="font-size:17px;border:2px solid var(--gold)">'+I.warn+'<div style="flex:1"><b>Βήμα 2 από 2 · Σκάναρε τον ΣΕΙΡΙΑΚΟ (S/N)</b><br><span class="mdl" style="font-size:24px">'+esc(modelOf(p))+'</span><span style="font-weight:600">'+pt+'</span><br><span style="font-weight:500">Του ίδιου κουτιού. Πάρε όσο χρόνο θες, περιμένω.</span>'+
+    (V.lockAsk?'<div style="margin-top:8px;font-weight:600">Έχεις ήδη μετρήσει '+esc(modelOf(p))+'. Είναι άλλο κουτί;</div><div class="row" style="gap:6px;margin-top:6px"><button class="btn btn-gold btn-sm" data-a="lockforce">Άλλο κουτί · μέτρησέ το</button><button class="btn btn-ghost btn-sm" data-a="lockcancel">Το ίδιο · άκυρο</button></div>':
+    '<div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" data-a="locknosn">Δεν έχει σειριακό</button><button class="btn btn-ghost btn-sm" data-a="lockcancel">Άκυρο · δεν είναι αυτό</button></div>')+'</div></div>'}
+  else if(pend){const p=P(pend.p),need=(pend.qi||0)>(pend.qo||0)?"ΕΞΩΤΕΡΙΚΗ":"ΕΣΩΤΕΡΙΚΗ";
+    step='<div class="msg m-warn" style="font-size:17px">'+I.warn+'<div><b>Βήμα 2 · Σκάναρε τώρα την '+need+' μονάδα</b><br><span class="mdl" style="font-size:22px">'+esc(modelOf(p))+'</span><br><span style="font-weight:500">'+acTxt(pend).replace(/<br>.*$/,"")+'</span><div style="margin-top:8px"><button class="btn btn-ghost btn-sm" data-a="acskip">Δεν υπάρχει '+(need==="ΕΞΩΤΕΡΙΚΗ"?"εξωτερική":"εσωτερική")+' εδώ · συνέχισε</button></div></div></div>'}
+  else step='<div class="msg m-info" style="font-size:16px">'+I.info+'<div><b>Σκάναρε το επόμενο κουτί.</b><br><span style="font-weight:500">Στόχευσε το αυτοκόλλητο με το μοντέλο (barcode 13 ψηφίων). Στις μεγάλες συσκευές και στα κλιματιστικά θα σου ζητήσω μετά και τον σειριακό (S/N) του ίδιου κουτιού, ώστε να μη μετρηθεί ποτέ δύο φορές. Μικροσυσκευές: σκάναρε κάθε κουτί.</span></div></div>';
+  const prog='<button class="quick" data-a="cltoggle" style="margin:0"><span style="font-size:22px;font-weight:800;color:var(--navy);min-width:70px;text-align:center">'+done+'/'+L.length+'</span><span>Είδη που μέτρησες<small>'+(left?'απομένουν '+left+' από τη λίστα της αποθήκης · '+(V.cl?'κρύψε':'δες')+' τη λίστα':'μέτρησες όλη τη λίστα ✓')+'</small></span></button>';
+  const lst=V.cl?'<div class="list" style="gap:6px">'+L.map(p=>{const c=V.cart.find(x=>x.p===p.id);return '<button class="prow" data-a="clpick" data-v="'+p.id+'" style="'+(c?'background:#eefaf1;border-color:var(--ok)':'')+'"><div><span class="mdlbig" style="font-size:17px">'+(c?'✓ ':'○ ')+esc(modelOf(p))+'</span><small>'+esc(p.n)+(c?' · μέτρησες '+c.q:'')+'</small></div>'+'</button>'}).join("")+'</div><div class="muted" style="font-size:13px">Πάτα συσκευή μόνο αν δεν έχει barcode για σκανάρισμα (μετράει 1 ολόκληρο τεμάχιο).</div>':"";
+  return '<div class="list" style="gap:10px">'+step+msgHTML()+prog+lst+(V.cart.length?'<h2 style="margin:6px 0 0">Μετρημένα</h2>'+V.cart.map((c,i)=>{const p=P(c.p);return '<div class="item'+(c.p===V.fresh?" fresh":"")+'"><div class="t"><b>'+esc(modelOf(p))+'</b><small>'+esc(p.n)+'</small>'+(c.ac?'<small style="display:block">'+acTxt(c)+'</small>':"")+(V.qedit===i?qEditHTML(i):"")+'</div><div class="qty"><button data-a="cq" data-i="'+i+'" data-v="-1">−</button><span data-a="qedit" data-i="'+i+'" style="cursor:pointer;text-decoration:underline dotted">'+c.q+'</span><button data-a="cq" data-i="'+i+'" data-v="1">+</button></div></div>'}).join(""):'')+'</div>'+
+  '<div class="dock"><button class="btn btn-ok" data-a="countend"'+(n?"":" disabled")+'>Τέλος μέτρησης · '+plural(n,"τεμάχιο","τεμάχια")+'</button><div class="row" style="gap:8px"><button class="btn btn-ghost" style="flex:1" data-a="countlater">Συνέχεια αργότερα</button><button class="btn btn-ghost" style="flex:1" data-a="countcancel">'+(V.ccArm?'Σίγουρα; πάτα ξανά':'Ακύρωση')+'</button></div></div>'};
+SCR.countres=()=>{const w=V.cw;
+  if(!SQ()){const n=cartN();return '<h1>Τέλος μέτρησης · '+esc(NAMES[w])+'</h1><div class="sentence">Μέτρησες '+plural(n,"κομμάτι","κομμάτια")+' σε '+plural(V.cart.length,"συσκευή","συσκευές")+'.</div><div class="list">'+V.cart.map(c=>'<div class="item"><div class="t"><b>'+c.q+' × '+esc(P(c.p).n)+'</b>'+(c.ac?'<small>'+acTxt(c)+'</small>':"")+'</div></div>').join("")+'</div><div class="dock"><button class="btn btn-ok" data-a="countsend">Στείλε στον διαχειριστή</button><button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button></div>'}
+  const rows=[];let bad=0,ok=0;
+  for(const c of V.cart){const p=P(c.p),sys=lq(p.id,w),d=c.q-sys;if(!d){ok++;continue}bad++;rows.push('<tr><td>'+esc(modelOf(p))+'<small style="display:block;color:var(--muted)">'+esc(p.n)+'</small></td><td>'+sys+'</td><td>'+c.q+'</td><td class="'+(d<0?"r-bad":"r-w")+'">'+(d<0?"λείπουν "+(-d):"+"+d)+'</td></tr>')}
+  const miss=S.P.filter(p=>lq(p.id,w)>0&&!V.cart.find(x=>x.p===p.id)),sysKinds=S.P.filter(p=>lq(p.id,w)>0).length,full=sysKinds>0&&miss.length<=Math.max(2,sysKinds*0.1);
+  const acb=V.cart.filter(acBad);
+  return '<h1>Τέλος μέτρησης · '+esc(NAMES[w])+'</h1><div class="sentence">Μέτρησες <b>'+plural(V.cart.length,"είδος","είδη")+'</b> ('+plural(cartN(),"τεμάχιο","τεμάχια")+').</div>'+
+  (ok?'<div class="msg m-ok">'+I.check+'<div>'+plural(ok,"είδος συμφωνεί","είδη συμφωνούν")+' με το σύστημα.</div></div>':"")+
+  (acb.length?'<div class="msg m-warn">'+I.warn+'<div><b>Κλιματιστικά χωρίς ζευγάρι:</b> '+acb.map(c=>esc(modelOf(P(c.p)))).join(", ")+'. Αν λείπει κουτί, γύρνα πίσω και σκάναρέ το.</div></div>':"")+
+  (bad?'<h2>Διαφορές σε όσα μέτρησες ('+bad+')</h2><div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Σύστημα</th><th>Μέτρησα</th><th></th></tr></thead><tbody>'+rows.join("")+'</tbody></table></div>':"")+
+  (miss.length?'<details class="msg m-info" style="display:block"><summary style="font-weight:600">'+plural(miss.length,"είδος","είδη")+' της λίστας δεν μετρήθηκαν · δεν αλλάζουν</summary><div style="margin-top:6px;font-weight:500">'+miss.map(p=>esc(modelOf(p))+' ('+lq(p.id,w)+')').join(" · ")+'</div></details>':"")+
+  '<div class="dock">'+(bad?'<button class="btn btn-ok" data-a="countfix" data-v="seen">Διόρθωσε '+plural(bad,"διαφορά","διαφορές")+' · μόνο όσα μέτρησα</button>':'<button class="btn btn-ok" data-a="countclose">Όλα σωστά · κλείσιμο</button>')+'<button class="btn btn-ghost" data-a="countback">Πίσω στη μέτρηση</button>'+(full&&miss.length?'<button class="btn btn-bad btn-sm" data-a="countfix" data-v="all">Μέτρησα ΟΛΗ την αποθήκη · μηδένισε τα '+miss.length+' που δεν βρήκα</button>':"")+'</div>'};
 
 /* Πού είναι */
 SCR.find=()=>backBtn("home")+'<h1>Πού είναι;</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="μοντέλο, όνομα ή barcode" autocomplete="off"><div class="list" id="dyn">'+DYN.find()+'</div>';
-DYN.find=()=>{const q=(V.q||"").trim();return (q?searchP(q,40):[]).map(p=>'<button class="prow" data-a="findpick" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+'</small></div><span class="n">'+tot(p.id)+'<small>σύνολο</small></span></button>').join("")||'<div class="empty">Δεν βρέθηκε. Δοκίμασε άλλο κομμάτι του μοντέλου.</div>'};
+DYN.find=()=>{const q=(V.q||"").trim();return (q?searchP(q,40):[]).map(p=>'<button class="prow" data-a="findpick" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+esc(p.m)+'</small></div>'+(SQ()?'<span class="n">'+tot(p.id)+'<small>σύνολο</small></span>':availBadge(p))+'</button>').join("")||'<div class="empty">Δεν βρέθηκε. Δοκίμασε άλλο κομμάτι του μοντέλου.</div>'};
+const eur=n=>n==null||isNaN(n)?"–":n.toLocaleString("el-GR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
 SCR.prod=()=>{const p=P(V.fp),c=custOf(p.id),hist=S.mv.filter(m=>m.p===p.id).sort((a,b)=>b.t-a.t).slice(0,5);
-  return backBtn("find")+'<h1>'+esc(p.n)+'</h1><div class="sub">'+esc(p.m)+' · '+esc(p.e)+'</div>'+(recentTxt(p.id)?'<div class="msg m-warn">'+I.warn+'<div>'+recentTxt(p.id)+'</div></div>':"")+(isAdmin()&&lq(p.id,"XALASMENA")>0?'<button class="btn btn-bad btn-sm" data-a="writeoff" data-v="'+p.id+'">Απόσυρση 1 χτυπημένης (δεν πουλιέται)</button>':"")+'<div class="stock">'+WH.map(w=>{const q=lq(p.id,w.id),s=sq(p.id,w.id);return '<div class="wh'+(q?"":" z")+'"><span>'+esc(w.n)+'</span><b>'+q+'</b>'+(w.id==="PARAGGELIA"&&q&&c?'<em>'+esc(c)+'</em>':"")+(q!==s?'<em>στο site: '+s+'</em>':"")+'</div>'}).join("")+'</div>'+
+  const extra=(p.img?'<img src="'+esc(p.img)+'" alt="" style="width:120px;height:120px;object-fit:contain;background:#fff;border-radius:14px;align-self:center">':"")+(SQ()?'<div class="row" style="gap:8px;flex-wrap:wrap"><span class="badge">Τιμή '+eur(p.pr)+'</span><span class="badge gold">Κόστος '+eur(p.c)+' χ.ΦΠΑ</span></div><div class="row" style="gap:6px;margin-top:4px"><input class="txt" style="flex:1;padding:10px" data-in="tk" value="'+esc(V.tk||"")+'" placeholder="Δουλειά για Claude (π.χ. χαρακτηριστικά, τιμή ανταγωνιστών)"><button class="btn btn-gold btn-sm" data-a="taskadd" data-v="'+p.id+'">Για Claude</button></div>':"");
+  return backBtn("find")+'<h1>'+esc(p.n)+'</h1><div class="sub">'+esc(p.m)+' · '+esc(p.e)+'</div>'+extra+(recentTxt(p.id)?'<div class="msg m-warn">'+I.warn+'<div>'+recentTxt(p.id)+'</div></div>':"")+(isAdmin()&&lq(p.id,"XALASMENA")>0?'<button class="btn btn-bad btn-sm" data-a="writeoff" data-v="'+p.id+'">Απόσυρση 1 χτυπημένης (δεν πουλιέται)</button>':"")+(SQ()?'<div class="stock">'+WH.map(w=>{const q=lq(p.id,w.id),s=sq(p.id,w.id);return '<div class="wh'+(q?"":" z")+'"><span>'+esc(w.n)+'</span><b>'+q+'</b>'+(w.id==="PARAGGELIA"&&q&&c?'<em>'+esc(c)+'</em>':"")+(q!==s?'<em>στο site: '+s+'</em>':"")+'</div>'}).join("")+'</div>':(()=>{const ws=WH.filter(w=>!w.virt&&lq(p.id,w.id)>0);return ws.length?'<h2>Βρίσκεται</h2><div class="list">'+ws.map(w=>'<div class="prow"><div><b>'+esc(w.n)+'</b>'+(w.h?'<small>'+esc(w.h)+'</small>':"")+'</div></div>').join("")+'</div>'+(lq(p.id,"PARAGGELIA")>0&&c?'<div class="muted">Υπάρχει κράτηση για '+esc(c)+'.</div>':""):'<div class="msg m-bad">'+I.warn+'<div>Δεν υπάρχει διαθέσιμο σε καμία αποθήκη.</div></div>'})())+
   (hist.length?'<h2>Τελευταίες κινήσεις</h2><div class="list">'+hist.map(mvRow).join("")+'</div>':"")};
 
 /* Διαχείριση */
 SCR.admin=()=>{const t=V.at||"new",nn=S.mv.filter(m=>m.nw&&!m.p&&!m.x).length+(S.unk||[]).length,pp=pend().length;
-  let h=backBtn("home")+'<h1>Διαχείριση</h1><div class="tabs">'+[["new","Νέες",nn],["chk","Έλεγχοι",0],["site","Πέρασμα στο site",pp],["hist","Ιστορικό",0],["set","Ρυθμίσεις",0]].map(x=>'<button class="'+(t===x[0]?"on":"")+'" data-a="at" data-v="'+x[0]+'">'+x[1]+(x[2]?' <span class="badge'+(x[0]==="site"?" gold":"")+'">'+x[2]+'</span>':"")+'</button>').join("")+'</div>'+msgHTML();
+  let h=backBtn("home")+'<h1>Διαχείριση</h1><div class="tabs">'+[["res","Κρατήσεις",activeRes().length],["new","Νέες",nn],["chk","Έλεγχοι",0],["hold","Χτυπημένα",S.P.filter(p=>lq(p.id,"XALASMENA")>0).length],["claude","Για Claude",(S.tasks||[]).length],["val","Αξία",0],["site","Πέρασμα στο site",pp],["hist","Ιστορικό",0],["set","Ρυθμίσεις",0]].map(x=>'<button class="'+(t===x[0]?"on":"")+'" data-a="at" data-v="'+x[0]+'">'+x[1]+(x[2]?' <span class="badge'+(x[0]==="site"?" gold":"")+'">'+x[2]+'</span>':"")+'</button>').join("")+'</div>'+msgHTML();
   if(t==="new"){const nm=S.mv.filter(m=>m.nw&&!m.p&&!m.x),uf=S.unk||[];
     h+='<div class="muted">Συσκευές που σκαναρίστηκαν και δεν τις ξέρουμε. Στην κανονική λειτουργία τις ελέγχει ο Claude με το site και σου τις φέρνει έτοιμες για έγκριση.</div>';
     h+=nm.length?'<div class="list">'+nm.map(m=>'<div class="item" style="align-items:flex-start">'+(m.img?'<img class="thumb" style="width:86px;height:86px" src="'+m.img+'" alt="Ετικέτα">':"")+'<div class="t"><b>'+m.q+' × νέα συσκευή</b><small>'+esc(m.code)+' '+esc(m.fmt||"")+'<br>'+esc(NAMES[m.to])+' · '+when(m.t)+' · '+esc(m.u)+'</small><input class="txt" style="padding:10px;font-size:15px;margin-top:8px" data-in="nn_'+m.id+'" placeholder="όνομα προϊόντος" autocomplete="off"><div class="row" style="margin-top:8px"><button class="btn btn-ok btn-sm" data-a="mknew" data-v="'+m.id+'">Νέο προϊόν</button><button class="btn btn-ghost btn-sm" data-a="linkold" data-v="'+m.id+'">Υπάρχει ήδη</button></div></div></div>').join("")+'</div>':'<div class="msg m-ok">'+I.check+'<div>Καμία νέα συσκευή σε αναμονή.</div></div>';
     if(uf.length)h+='<h2>Άγνωστα barcode σε μετακίνηση ή μέτρηση</h2><div class="list">'+uf.map((u,i)=>'<div class="item"><div class="t"><b>'+esc(u.code)+'</b><small>'+esc(u.fmt||"")+' · '+esc(NAMES[u.w]||"")+' · '+when(u.t)+' · '+esc(u.u)+'</small></div><button class="btn btn-ghost btn-sm" data-a="unklink" data-i="'+i+'">Σύνδεση</button><button class="rm" data-a="unkx" data-i="'+i+'" aria-label="Αγνόησε">'+I.x+'</button></div>').join("")+'</div>'}
-  if(t==="chk"){const ni=S.mv.filter(m=>!m.x&&m.ty==="receive"&&m.doc==="delt"),rs=S.P.filter(p=>lq(p.id,"PARAGGELIA")>0);
+  if(t==="chk"){const reps=S.mv.filter(m=>!m.x&&m.ty==="count"&&!m.p&&/^ΜΕΤΡΗΣΗ /.test(m.note||""));
+    if(reps.length)h+='<h2>Μετρήσεις από υπαλλήλους</h2>'+reps.map(m=>{const cnt=parseRep(m),w=m.f,rows=[];for(const p of S.P){if(!(p.id in cnt))continue;const sys=lq(p.id,w),n=cnt[p.id]||0;if(!sys&&!n)continue;const d=n-sys;if(d)rows.push('<tr><td>'+esc(p.n)+'</td><td>'+sys+'</td><td>'+n+'</td><td class="'+(d<0?"r-bad":"r-w")+'">'+(d<0?"λείπουν "+(-d):"+"+d)+'</td></tr>')}
+      return '<div class="resume" style="display:block"><b>'+esc(NAMES[w])+' · '+esc(m.u)+' · '+when(m.t)+'</b>'+(rows.length?'<div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Σύστημα</th><th>Μέτρησε</th><th></th></tr></thead><tbody>'+rows.join("")+'</tbody></table></div><div class="row" style="margin-top:8px"><button class="btn btn-gold btn-sm" data-a="repapply" data-v="'+m.id+'">Διόρθωσε με βάση αυτή</button><button class="btn btn-ghost btn-sm" data-a="repdrop" data-v="'+m.id+'">Απόρριψη</button></div>':'<div class="muted">Όλα συμφωνούν με το σύστημα.</div><button class="btn btn-ghost btn-sm" data-a="repdrop" data-v="'+m.id+'">Εντάξει</button>')+'</div>'}).join("");
+    const ni=S.mv.filter(m=>!m.x&&m.ty==="receive"&&m.doc==="delt"),rs=S.P.filter(p=>lq(p.id,"PARAGGELIA")>0);
     h+='<h2>Παραλαβές χωρίς τιμολόγιο</h2>'+(ni.length?'<div class="list">'+ni.map(mvRow).join("")+'</div>':'<div class="msg m-ok">'+I.check+'<div>Όλες έχουν τιμολόγιο.</div></div>')+
        '<h2>Πουλημένα που δεν παραδόθηκαν</h2>'+(rs.length?'<div class="list">'+rs.map(p=>'<div class="prow"><div><b>'+esc(p.n)+'</b><small>'+esc(custOf(p.id)||"")+'</small></div><span class="n">'+lq(p.id,"PARAGGELIA")+'</span></div>').join("")+'</div>':'<div class="msg m-ok">'+I.check+'<div>Τίποτα σε εκκρεμότητα.</div></div>')}
   if(t==="site"){const d=[];for(const p of S.P)for(const w of WH.filter(w=>!w.app)){const a=sq(p.id,w.id),b=lq(p.id,w.id);if(a!==b)d.push('<tr><td>'+esc(p.n)+'</td><td>'+esc(w.n)+'</td><td>'+a+' → <b>'+b+'</b></td></tr>')}
     h+='<div class="muted">Έτσι θα είναι το κουμπί μέσα στο admin του konidas.gr. Αλλάζει <b>μόνο</b> νούμερα αποθέματος ανά αποθήκη: όχι τιμές, τίτλους ή χαρακτηριστικά.</div>'+
       (LIVE?'<div class="msg m-info">'+I.info+'<div>Το πέρασμα στο konidas.gr γίνεται από τον υπολογιστή: admin του konidas.gr → σελιδοδείκτης «Πέρασε κινήσεις» → Έγκριση. Εδώ βλέπεις τι εκκρεμεί.</div></div>':"")+(d.length?'<div class="tbl"><table><thead><tr><th>Συσκευή</th><th>Αποθήκη</th><th>Site → νέο</th></tr></thead><tbody>'+d.join("")+'</tbody></table></div>'+(LIVE?'':'<button class="btn btn-ok" data-a="sync">Πέρασε '+plural(pp,"κίνηση","κινήσεις")+' στο site</button>'):'<div class="msg m-ok">'+I.check+'<div>Το site συμφωνεί. Τίποτα για πέρασμα.</div></div>')+
       (!LIVE&&S.bk.length?'<button class="btn btn-bad" data-a="unsync">Αναίρεση τελευταίου περάσματος</button>':"")}
+  if(t==="res"){const today=dKey(new Date()),rs=activeRes();
+    h+=rs.length?'<div class="list">'+rs.map(r=>{const od=r.due&&r.due<today,m=r.m;return '<div class="item" style="display:block'+(od?';border-color:var(--bad);background:#fff4f2':"")+'"><b>'+r.q+' × '+esc(r.p.n)+'</b><small style="display:block">'+(m?esc(m.cust||"")+' · '+esc(m.note||""):"χωρίς στοιχεία κράτησης")+'</small>'+(r.due?'<small style="display:block;font-weight:700;color:'+(od?"var(--bad)":r.due===today?"var(--warn)":"inherit")+'">'+(od?"Καθυστερεί από ":r.due===today?"Σήμερα · ":"Παράδοση ")+r.due.split("-").reverse().join("/")+'</small>':"")+(m?'<div class="row" style="margin-top:8px"><button class="btn btn-ok btn-sm" data-a="resdel" data-v="'+m.id+'">Παραδόθηκε</button><button class="btn btn-ghost btn-sm" data-a="rescan" data-v="'+m.id+'">Ακύρωση κράτησης</button></div>':"")+'</div>'}).join("")+'</div>':'<div class="msg m-ok">'+I.check+'<div>Καμία ανοιχτή κράτηση.</div></div>'}
+  if(t==="hold"){const hs=S.P.filter(p=>lq(p.id,"XALASMENA")>0);h+=hs.length?'<div class="list">'+hs.map(p=>'<button class="prow" data-a="findpick" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+lq(p.id,"XALASMENA")+' στα Χτυπημένα · πάτα για απόφαση</small></div>'+I.chev+'</button>').join("")+'</div>':'<div class="msg m-ok">'+I.check+'<div>Δεν υπάρχουν χτυπημένα.</div></div>'}
+  if(t==="claude"){const ts=S.tasks||[];h+='<div class="muted">Δουλειές που μου αφήνεις από το κινητό. Τις βλέπω στο πρωινό σου briefing και στην επόμενη συνομιλία.</div><div class="row" style="gap:6px;margin:8px 0"><input class="txt" style="flex:1;padding:10px" data-in="tk" value="'+esc(V.tk||"")+'" placeholder="γράψε τι θέλεις να κάνω"><button class="btn btn-gold btn-sm" data-a="taskadd" data-v="">Προσθήκη</button></div>'+(ts.length?'<div class="list">'+ts.map(x=>'<div class="item"><div class="t"><b>'+esc(x.text)+'</b><small>'+(x.p&&P(x.p)?esc(P(x.p).n)+' · ':"")+esc(x.u||"")+' · '+when(Number(x.t))+'</small></div><button class="btn btn-ghost btn-sm" data-a="taskdone" data-v="'+esc(x.id)+'">Έγινε</button></div>').join("")+'</div>':'<div class="empty">Καμία δουλειά σε αναμονή.</div>')}
+  if(t==="val"){let sum=0,miss=0;const rows=WH.filter(w=>!w.virt).map(w=>{let v=0,n=0;for(const p of S.P){const q=lq(p.id,w.id);if(q>0){n+=q;if(p.c!=null)v+=q*p.c;else miss+=q}}sum+=v;return '<tr><td>'+esc(w.n)+'</td><td>'+n+'</td><td>'+eur(v)+'</td></tr>'});
+    const now=Date.now(),dead=S.P.filter(p=>tot(p.id)>0&&!S.mv.some(m=>m.p===p.id&&!m.x&&now-m.t<90*DAY)).map(p=>[p,tot(p.id)*(p.c||0)]).sort((a,b)=>b[1]-a[1]).slice(0,15);
+    h+='<h2>Αξία αποθέματος (κόστος χωρίς ΦΠΑ)</h2><div class="tbl"><table><thead><tr><th>Αποθήκη</th><th>Τεμ.</th><th>Αξία</th></tr></thead><tbody>'+rows.join("")+'<tr><td><b>Σύνολο</b></td><td></td><td><b>'+eur(sum)+'</b></td></tr></tbody></table></div>'+(miss?'<div class="muted">'+miss+' τεμάχια χωρίς κόστος στο site.</div>':"")+
+      '<h2>Δεν κινήθηκαν 90+ μέρες (ιδέες για προσφορές)</h2><div class="list">'+dead.map(([p,v])=>'<button class="prow" data-a="findpick" data-v="'+p.id+'"><div><b>'+esc(p.n)+'</b><small>'+tot(p.id)+' τεμ. · '+eur(v)+'</small></div>'+I.chev+'</button>').join("")+'</div><div class="muted">Μετράει από τότε που ξεκίνησε η εφαρμογή. Γίνεται ακριβές σε 3 μήνες.</div>'}
   if(t==="hist"){const all=S.mv.slice().sort((a,b)=>b.t-a.t);h+=all.length?'<div class="list">'+all.map(mvRow).join("")+'</div>':'<div class="empty">Καμία κίνηση ακόμα.</div>'}
   if(t==="set"){const wb=S.P.filter(p=>p.e||(p.x||[]).length).length,ws=S.P.filter(p=>tot(p.id)>0),wsb=ws.filter(p=>p.e||(p.x||[]).length).length;
     h+='<div class="msg m-info">'+I.info+'<div><b>Barcode:</b> '+wsb+' από '+ws.length+' συσκευές με απόθεμα τα έχουν ('+Math.round(100*wsb/Math.max(1,ws.length))+'%). Σύνολο site: '+wb+'/'+S.P.length+'. Συμπληρώνονται μόνα τους σε κάθε απογραφή.</div></div>'}
+  if(t==="set"&&LIVE&&(S.users||[]).length)h+='<h2>Χρήστες</h2><div class="list">'+S.users.map(u=>'<div class="item"><div class="t"><b>'+esc(u.name)+'</b><small>'+(u.role==="admin"?"διαχειριστής":"υπάλληλος")+(u.active===false?' · <b style="color:var(--bad)">κλειδωμένος</b>':"")+'</small></div>'+(u.name===S.user?'<small>εσύ</small>':'<button class="btn btn-'+(u.active===false?"ok":"bad")+' btn-sm" data-a="ulock" data-v="'+esc(u.name)+'">'+(u.active===false?"Ξεκλείδωμα":"Κλείδωμα")+'</button>')+'</div>').join("")+'</div><div class="muted">Κλείδωμα: ο χρήστης χάνει αμέσως την πρόσβαση σε όλα τα κινητά.</div>';
   if(t==="set")h+='<div class="muted">Χρήστης σε αυτό το κινητό: <b>'+esc(S.user)+'</b></div><button class="btn btn-ghost" data-a="voice">Φωνή στο σκανάρισμα: '+(S.voice===false?"κλειστή":"ανοιχτή")+'</button><button class="btn btn-ghost" data-a="go" data-v="who">Αλλαγή χρήστη</button><button class="btn btn-ghost" data-a="copybk">Αντιγραφή αντιγράφου ασφαλείας</button>'+(LIVE?'<button class="btn btn-ghost" data-a="refresh">Ανανέωση από τη βάση</button>':'<button class="btn btn-bad" data-a="reset">Επαναφορά δοκιμής από την αρχή</button>');
   return h};
 function mvRow(m){const p=m.p?P(m.p):{n:m.ty==="count"?"διαφορές στο "+(NAMES[m.f]||""):"Νέα συσκευή "+(m.code||"")},k={move:"Μεταφορά",receive:"Παραλαβή",deliver:"Παράδοση",reserve:"Πώληση",count:"Μέτρηση",link:"Barcode",writeoff:"Απόσυρση"}[m.ty]||m.ty;
@@ -739,6 +850,19 @@ function linkCode(pid,code){OP({op:"linkCode",pid:String(pid),code})}
 try{history.replaceState({k:0},"");history.pushState({k:1},"")}catch(e){}
 window.addEventListener("popstate",()=>{if(parentOf(V.scr)){A.back();try{history.pushState({k:1},"")}catch(e){}}else{try{history.back()}catch(e){}}});
 const A={
+  acset:v=>{const p=P(V.acP);OP({op:"linkCode",pid:p.id,code:normC(V.acCode)+"@"+v});V.partNow=v;V.scr=V.kind==="count"?"countscan":"scan";lastCode="";seen=null;render();(V.kind==="count"?countHit:addHit)(V.acCode,V.acFmt,p);toast("Το θυμάμαι: "+(v==="i"?"εσωτερική":v==="o"?"εξωτερική":"σετ")+".")},
+  qedit:(v,i)=>{V.qedit=+i;V.qv="";paint();setTimeout(()=>{const e=document.getElementById("qin");if(e){e.focus();e.select()}},50)},
+  qset:(v,i)=>{const c=V.cart[+i],n=parseInt(V.qv,10);if(!c||!(n>=1&&n<=99)){toast("Γράψε αριθμό από 1 έως 99.");return}
+    if(V.kind==="move"&&!c.nw&&!c.chk){const a=avail(c.p,n);if(!a.ok){V.msg=["bad",a.why];V.qedit=null;paint();return}}
+    const old=c.q,oi=c.qi,oo=c.qo,os=c.qs;if(c.ac){c.qi=n;c.qo=n;c.qs=0}c.q=n;V.qedit=null;V.qv="";saveDraft();paint();toast("Ορίστηκε: "+n+" τεμ.","Αναίρεση",()=>{c.q=old;if(c.ac){c.qi=oi;c.qo=oo;c.qs=os}saveDraft();paint()})},
+  qcancel:()=>{V.qedit=null;paint()},
+  acok:()=>{V.acok=1;V.msg=null;render()},
+  boss:v=>{V.at=v;go("admin")},
+  resdel:v=>{const m=S.mv.find(x=>x.id===v);if(!m)return;if(V.rdArm!==v){V.rdArm=v;toast("Πάτα ξανά «Παραδόθηκε» για επιβεβαίωση.");return}V.rdArm=null;const b=uid();addMove({id:uid(),b,t:Date.now(),u:S.user,ty:"deliver",p:m.p,q:1,f:"PARAGGELIA",to:"CUS",cust:m.cust,note:"παράδοση κράτησης"});V.lastBatch=b;render();toast("Παραδόθηκε σε "+(m.cust||"πελάτη")+".","Αναίρεση",()=>{OP({op:"cancelBatch",b});render()})},
+  rescan:v=>{const m=S.mv.find(x=>x.id===v);if(!m)return;if(V.rcArm!==v){V.rcArm=v;toast("Πάτα ξανά για ακύρωση της κράτησης. Η συσκευή γυρίζει στο "+(NAMES[m.f]||"")+".");return}V.rcArm=null;const b=uid();addMove({id:uid(),b,t:Date.now(),u:S.user,ty:"move",p:m.p,q:1,f:"PARAGGELIA",to:m.f,cust:m.cust,note:"ακύρωση κράτησης"});render();toast("Η κράτηση ακυρώθηκε.","Αναίρεση",()=>{OP({op:"cancelBatch",b});render()})},
+  taskadd:v=>{const tx=(V.tk||"").trim();if(!tx){toast("Γράψε τι θέλεις να κάνω.");return}OP({op:"task",id:uid(),p:v||"",text:tx});V.tk="";render();toast("Μπήκε στη λίστα «Για Claude».")},
+  taskdone:v=>{OP({op:"taskDone",id:v});render()},
+  ulock:v=>{const u=(S.users||[]).find(x=>x.name===v);if(!u)return;if(V.ulArm!==v){V.ulArm=v;toast("Πάτα ξανά για "+(u.active===false?"ξεκλείδωμα":"κλείδωμα")+" του χρήστη "+v+".");return}V.ulArm=null;const was=u.active!==false;OP({op:"setUser",name:v,active:!was});render();toast(was?"Κλειδώθηκε: "+v+".":"Ξεκλειδώθηκε: "+v+".")},
   back:()=>{const s=V.scr,pr=parentOf(s);if(!pr)return;
     if(s==="scan"||s==="countscan"){stopCam();if(V.cart&&V.cart.length){saveDraft();V.kind=null;toast("Η λίστα κρατήθηκε. Τη συνεχίζεις από την αρχική.")}else clearDraft()}
     else if(s==="from"||s==="count"||s==="sale"||s==="find"){V.kind=V.kind&&S.draft?V.kind:null}
@@ -762,7 +886,7 @@ const A={
   resume:resumeDraft,
   discard:()=>{const d=S.draft;clearDraft();render();toast("Η λίστα διαγράφηκε.","Αναίρεση",()=>{S.draft=d;save();render()})},
   cq:(v,i)=>{const c=V.cart[i];if(!c)return;if(+v>0&&V.kind==="move"&&!c.nw){const a=avail(c.p,c.q+1);if(!a.ok){beepBad();V.msg=["bad",a.why];paint();return}}
-    if(+v<0&&c.q===1){A.crm(null,i);return}c.q+=+v;V.msg=null;saveDraft();paint()},
+    if(+v<0&&c.q===1){A.crm(null,i);return}if(c.ac){c.qi=(c.qi||0)+(+v);c.qo=(c.qo||0)+(+v);c.q=(c.qs||0)+Math.max(c.qi,c.qo)}else c.q+=+v;V.msg=null;saveDraft();paint()},
   crm:(v,i)=>{const c=V.cart.splice(i,1)[0];saveDraft();V.msg=null;paint();if(c)toast("Αφαιρέθηκε από τη λίστα.","Αναίρεση",()=>{V.cart.splice(i,0,c);saveDraft();paint()})},
   tosum:()=>{stopCam();go("sum")},
   backscan:()=>{V.q="";lastCode="";go(V.kind==="count"?"countscan":"scan")},
@@ -784,23 +908,39 @@ const A={
   dq:v=>{V.dq=v;V.msg=null;render()},
   commit:commitMove,
   undobatch:()=>{OP({op:"cancelBatch",b:V.lastBatch});go("home");toast("Αναιρέθηκε. Δεν άλλαξε τίποτα.")},
-  startsale:()=>{V.q="";V.sp=null;V.sf=null;V.cust="";V.sk=null;V.focus=1;go("sale")},
+  startsale:()=>{V.q="";V.sp=null;V.sf=null;V.cust="";V.sk=null;V.due="";V.pay=null;V.dep="";V.focus=1;go("sale")},
   salepick:v=>{V.sp=v;V.sf=null;go("sale2")},
   sf:v=>{V.sf=v;V.msg=null;render()},
   sk:v=>{V.sk=v;V.msg=null;render()},
-  salecommit:()=>{if(!V.sf){V.msg=["bad","Διάλεξε από ποια αποθήκη."];render();return}if(!V.sk){V.msg=["bad","Διάλεξε αν το πήρε τώρα ή θα παραδοθεί αργότερα."];render();return}const cu=(V.cust||"").trim();if(!cu){V.msg=["bad","Γράψε το όνομα του πελάτη."];render();return}
+  pay:v=>{V.pay=v;V.msg=null;render()},
+  salecommit:()=>{if(V.sk==="later"){if(!V.due){V.msg=["bad","Βάλε ημερομηνία παράδοσης."];render();return}if(!V.pay){V.msg=["bad","Διάλεξε τι έγινε με την πληρωμή."];render();return}if(V.pay==="dep"&&!(parseFloat(String(V.dep||"").replace(",","."))>0)){V.msg=["bad","Γράψε το ποσό της προκαταβολής."];render();return}}
+    if(!V.sf){V.msg=["bad","Διάλεξε από ποια αποθήκη."];render();return}if(!V.sk){V.msg=["bad","Διάλεξε αν το πήρε τώρα ή θα παραδοθεί αργότερα."];render();return}const cu=(V.cust||"").trim();if(!cu){V.msg=["bad","Γράψε το όνομα του πελάτη."];render();return}
     if(lq(V.sp,V.sf)<1){V.msg=["bad","Δεν υπάρχει πια απόθεμα εκεί."];render();return}
-    const b=uid();if(V.sk==="now"){addMove({id:uid(),b,t:Date.now(),u:S.user,ty:"deliver",p:V.sp,q:1,f:V.sf,to:"CUS",cust:cu,note:"πώληση στο μαγαζί"});V.doneTxt=P(V.sp).n+" · πουλήθηκε σε "+cu}else{addMove({id:uid(),b,t:Date.now(),u:S.user,ty:"reserve",p:V.sp,q:1,f:V.sf,to:"PARAGGELIA",cust:cu});V.doneTxt=P(V.sp).n+" · κράτηση για "+cu}save();V.lastBatch=b;chime();go("done")},
+    const b=uid();if(V.sk==="now"){addMove({id:uid(),b,t:Date.now(),u:S.user,ty:"deliver",p:V.sp,q:1,f:V.sf,to:"CUS",cust:cu,note:"πώληση στο μαγαζί"});V.doneTxt=P(V.sp).n+" · πουλήθηκε σε "+cu}else{const dd=V.due.split("-").reverse().join("/"),pt=V.pay==="full"?"εξοφλήθηκε":V.pay==="dep"?"προκαταβολή "+String(V.dep).replace(".",",")+"€":"δεν έχει πληρώσει";addMove({id:uid(),b,t:Date.now(),u:S.user,ty:"reserve",p:V.sp,q:1,f:V.sf,to:"PARAGGELIA",cust:cu,due:V.due,pay:V.pay,dep:V.pay==="dep"?String(V.dep):"",note:"Παράδοση "+dd+" · "+pt});V.doneTxt=P(V.sp).n+" · κράτηση για "+cu}save();V.lastBatch=b;chime();go("done")},
   startcount:()=>{if(S.draft&&S.draft.cart&&S.draft.cart.length){toast("Υπάρχει δουλειά στη μέση.","Συνέχεια",resumeDraft);return}go("count")},
-  countwh:v=>{V.kind="count";V.cw=v;V.cart=[];V.onScan=countHit;lastCode="";saveDraft();go("countscan")},
-  countend:()=>{stopCam();go("countres")},
+  countwh:v=>{V.kind="count";V.cw=v;V.cart=[];V.lock=null;V.lockAsk=0;V.onScan=countHit;lastCode="";saveDraft();go("countscan")},
+  countend:()=>{if(V.lock){V.msg=["warn","Τελείωσε πρώτα το κουτί που μετράς: σκάναρε τον σειριακό ή πάτα «Δεν έχει σειριακό»."];paint();return}stopCam();V.ccArm=0;go("countres")},
+  countlater:()=>{saveDraft();stopCam();go("home");toast("Η μέτρηση κρατήθηκε. Συνεχίζεις από το «Μέτρηση».")},
+  countcancel:()=>{if(V.ccArm!==1){V.ccArm=1;paint();setTimeout(()=>{if(V.ccArm===1){V.ccArm=0;if(V.scr==="countscan")paint()}},4000);return}V.ccArm=0;A.cancelflow()},
+  cltoggle:()=>{V.cl=!V.cl;paint()},
+  msgclr:()=>{V.msg=null;paint()},
+  locknosn:()=>{const L=V.lock;if(!L)return;const c=V.cart.find(x=>x.p===L.p);if(c&&(c.codes||[]).includes(L.code)){V.lockAsk=1;paint();return}lockDone(null)},
+  lockforce:()=>{V.lockAsk=0;lockDone(null)},
+  lockcancel:()=>{V.lock=null;V.lockAsk=0;V.msg=null;paint()},
+  unkopen:()=>{V.msg=null;V.focus=1;go("unknown")},
+  unkignore:()=>{V.ign=(V.ign||[]).concat(V.unknown);V.msg=null;V.unknown=null;paint()},
+  cplus:vv=>{const[v,pt]=String(vv).split("|"),p=P(v);let c=V.cart.find(x=>x.p===v);if(!c)return;if(c.ac&&pt)acAdd(c,pt,1);else c.q++;V.lastUnit={p:v,at:Date.now(),sn:null};beepOk();V.fresh=v;V.msg=["flash",flashHTML(p,c.q,c.ac?acTxt(c):"")];saveDraft();paint()},
+  clpick:v=>{const p=P(v);lastCode="";seen=null;V.manual=1;countHit(p.e||("#"+p.id),"ΧΕΙΡΟΚΙΝΗΤΑ",p);V.manual=0},
+  acskip:()=>{const c=acPending();if(c){const m=Math.max(c.qi||0,c.qo||0);c.qi=c.qo=m;c.q=(c.qs||0)+m;c.solo=1;saveDraft()}V.msg=null;paint()},
   countback:()=>go("countscan"),
   eodok:v=>{OP({op:"eod",d:v});V.eodAll=false;render();toast("Ευχαριστώ! Όλα καταγεγραμμένα.")},
   eodall:()=>{V.eodAll=!V.eodAll;render()},
   countclose:()=>{clearDraft();go("home")},
-  countfix:()=>{const t=Date.now(),b=uid();for(const p of S.P){const c=V.cart.find(x=>x.p===p.id);if(!c)continue;const sys=lq(p.id,V.cw),n=c.q,d=n-sys;if(d)addMove({id:uid(),b,t,u:S.user,ty:"count",p:p.id,q:Math.abs(d),f:d<0?V.cw:"ADJ",to:d<0?"ADJ":V.cw})}
+  countfix:v=>{if(v==="all"){const z=S.P.filter(p=>lq(p.id,V.cw)>0&&!V.cart.find(x=>x.p===p.id)).length;if(z&&V.cfArm!==1){V.cfArm=1;toast("Θα μηδενιστούν "+z+" είδη που δεν σκάναρες. Πάτα ξανά μόνο αν μέτρησες ΟΛΗ την αποθήκη.");return}}V.cfArm=0;const t=Date.now(),b=uid();for(const p of S.P){const c=V.cart.find(x=>x.p===p.id);if(v!=="all"&&!c)continue;const sys=lq(p.id,V.cw),n=c?c.q:0,d=n-sys;if(d)addMove({id:uid(),b,t,u:S.user,ty:"count",p:p.id,q:Math.abs(d),f:d<0?V.cw:"ADJ",to:d<0?"ADJ":V.cw,full:v==="all"?"1":undefined})}
     V.lastBatch=b;V.doneTxt="Διορθώθηκε το απόθεμα στο "+NAMES[V.cw];clearDraft();chime();go("done")},
-  countsend:()=>{addMove({id:uid(),t:Date.now(),u:S.user,ty:"count",p:null,q:0,f:V.cw,to:V.cw,note:"μέτρηση με διαφορές για έλεγχο"});clearDraft();go("home");toast("Στάλθηκε για έλεγχο στον Γιάννη και τον Γιώργο.")},
+  repapply:v=>{const m=S.mv.find(x=>x.id===v);if(!m)return;const cnt=parseRep(m),w=m.f,t=Date.now(),b=uid();let k=0;for(const p of S.P){if(!(p.id in cnt))continue;const sys=lq(p.id,w),n=cnt[p.id]||0,d=n-sys;if(d){k++;addMove({id:uid(),b,t,u:S.user,ty:"count",p:p.id,q:Math.abs(d),f:d<0?w:"ADJ",to:d<0?"ADJ":w,note:"από μέτρηση "+m.u})}}OP({op:"patchMove",id:v,set:{x:t}});render();toast(plural(k,"διόρθωση","διορθώσεις")+" καταχωρήθηκαν.")},
+  repdrop:v=>{OP({op:"patchMove",id:v,set:{x:Date.now()}});render()},
+  countsend:()=>{addMove({id:uid(),t:Date.now(),u:S.user,ty:"count",p:null,q:0,f:V.cw,to:V.cw,note:"ΜΕΤΡΗΣΗ "+V.cart.map(c=>c.p+":"+c.q).join(",")});clearDraft();go("home");toast("Στάλθηκε στον διαχειριστή για έλεγχο.")},
   startfind:()=>{V.q="";V.focus=1;go("find")},
   findpick:v=>{V.fp=v;go("prod")},
   at:v=>{V.at=v;V.msg=null;render()},
@@ -820,6 +960,9 @@ const A={
 document.addEventListener("click",e=>{const el=e.target.closest("[data-a]");if(!el||el.disabled)return;const f=A[el.getAttribute("data-a")];if(f){try{AC&&AC.state==="suspended"&&AC.resume()}catch(x){}f(el.getAttribute("data-v"),+el.getAttribute("data-i"))}});
 window.addEventListener("online",render);window.addEventListener("offline",render);
 window.addEventListener("storage",e=>{if(e.key===KEY){try{S=JSON.parse(e.newValue)||S}catch(x){}}});
+
+/* service worker: λειτουργία χωρίς σήμα */
+/* δοκιμαστική έκδοση: χωρίς service worker */
 
 /* service worker: λειτουργία χωρίς σήμα */
 if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js").catch(()=>{})}
