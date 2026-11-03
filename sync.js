@@ -5,7 +5,7 @@
 (function () {
   "use strict";
   if (window.__KSYNC) { window.__KSYNC.show(); return; }
-  const VER = "1.0";
+  const VER = "1.1";
   const WHS = { KTIMA: 8, PARAGGELIA: 7, EKTHESI: 6, MAGAZI: 1, AITOLIKI: 5, NEKTARIOS: 2, FYLAXI: 3 };
   const NAMES = { MAGAZI: "Αποθ. μαγαζιού", EKTHESI: "Έκθεση", KTIMA: "Κτήμα", FYLAXI: "Φύλαξη", AITOLIKI: "Αιτωλική", NEKTARIOS: "Νεκτάριος", XALASMENA: "Χτυπημένα", PARAGGELIA: "Παραγγελία", CUS: "Πελάτης", SUP: "Προμηθευτής", ADJ: "Διόρθωση" };
   const ALLW = Object.keys(WHS).concat(["XALASMENA"]);
@@ -230,13 +230,78 @@
     if (bSkip.length) h += `<h2 class="warn">Barcode που δεν γράφονται · ${bSkip.length}</h2><table>` + bSkip.map(b => `<tr><td><b>${esc(pname(b.pid))}</b><div class="m">#${b.pid} · ${esc(b.code)}</div></td><td class="warn">${esc(b.why)}</td></tr>`).join("") + `</table>`;
     const n = ok.length + conf.filter(r => choice[r.pid]).length + bOk.length;
     h += n ? `<div class="msg mi">Θα αλλάξει <b>μόνο</b> απόθεμα ανά αποθήκη και κενά barcode. Τιμές, τίτλοι και όλα τα άλλα μένουν ως έχουν. Κρατιέται backup.</div><button class="btn go" data-a="run">Έγκριση · πέρασέ τα (${n})</button>` : "";
-    h += `<button class="btn gh" data-a="reload">Ανανέωση</button>`;
+    h += `<button class="btn gh" data-a="reload">Ανανέωση</button><div class="msg mi" style="margin-top:14px"><b>Αυτόματο πέρασμα:</b> αφήνεις αυτή την καρτέλα ανοιχτή και κάθε 25 δευτερόλεπτα περνάει μόνο του ό,τι είναι 100% καθαρό (μόνο απόθεμα). Ό,τι δεν ταιριάζει δεν το αγγίζει.</div><button class="btn go" data-a="autostart">Ξεκίνα αυτόματο</button>`;
     B.innerHTML = h;
   }
   const pick = t => { const o = {}; Object.keys(WHS).forEach(w => { o[w] = t[w]; }); return o; };
   function addOnLive(r) { const o = {}; Object.keys(WHS).forEach(w => { o[w] = r.live.wh[w] + (r.tgt[w] - Number(r.snap[w] || 0)); }); return o; }
   A.ch = v => { const [pid, c] = v.split("|"); if (c) choice[pid] = c; else delete choice[pid]; preview(); };
 
+  /* Περνάει ένα προϊόν: ξαναδιαβάζει, γράφει μόνο απόθεμα, επιβεβαιώνει, σημειώνει στην εφαρμογή */
+  async function applyStock(r, c) {
+    const L = await readProd(r.pid); /* ξαναδιαβάζω ακριβώς πριν γράψω */
+    const same = Object.keys(WHS).every(w => L.wh[w] === r.live.wh[w]);
+    if (!same) return ["bad", "Άλλαξε στο site μόλις τώρα. Δεν άγγιξα τίποτα."];
+    const want = c === "keep" ? Object.assign({}, L.wh) : c === "add" ? addOnLive(r) : pick(r.tgt);
+    if (Object.values(want).some(q => q < 0)) return ["bad", "Θα έβγαινε αρνητικό. Δεν άγγιξα τίποτα."];
+    backup({ kind: "stock", pid: r.pid, before: L.wh, want, moves: r.ms.map(m => m.id) });
+    for (const w of Object.keys(WHS)) if (want[w] !== L.wh[w]) await setStock(r.pid, w, want[w]);
+    const V = await readProd(r.pid);
+    const bad = Object.keys(WHS).filter(w => V.wh[w] !== want[w]);
+    if (bad.length) return ["bad", "Μετά τον έλεγχο δεν ταιριάζει: " + bad.map(w => NAMES[w] + " " + V.wh[w] + " αντί " + want[w]).join(", ") + ". Δεν σημειώθηκε ως περασμένο."];
+    const snap = Object.assign({}, V.wh, { XALASMENA: r.tgt.XALASMENA });
+    const s = await api("POST", null, { ops: [{ op: "sync", oid: "s" + Date.now() + r.pid, ids: r.ms.map(m => m.id), site: { [r.pid]: snap } }] });
+    if (!s.ok || !(s.applied || []).length) return ["warn", "Γράφτηκε στο site, αλλά η εφαρμογή δεν το σημείωσε. Μην το ξαναπεράσεις, πες το στον Γιάννη."];
+    return ["ok", c === "keep" ? "Κράτησα το site ως έχει, οι κινήσεις σημειώθηκαν." : Object.keys(WHS).filter(w => want[w] !== L.wh[w]).map(w => NAMES[w] + " " + L.wh[w] + "→" + want[w]).join(", ") || "Καμία αλλαγή στο site, σημειώθηκε."];
+  }
+  /* ---------- ΑΥΤΟΜΑΤΟ: ελέγχει κάθε 25" και περνάει αμέσως ό,τι είναι 100% καθαρό ---------- */
+  const AUTO = { on: false, last: 0, ver: "", pver: "", P: {}, log: [], conf: {}, n: 0, beat: 0, timer: null, err: "" };
+  function autoView() {
+    if (!AUTO.on) return;
+    const cf = Object.values(AUTO.conf);
+    B.innerHTML = head("Αυτόματο πέρασμα · ενεργό ✓", "Μην κλείσεις αυτή την καρτέλα. Ελέγχει κάθε 25 δευτερόλεπτα και περνάει αμέσως μόνο το απόθεμα ανά αποθήκη.") +
+      `<div class="msg ${AUTO.err ? "mb" : "mo"}">${AUTO.err ? esc(AUTO.err) : "Τελευταίος έλεγχος: " + (AUTO.last ? new Date(AUTO.last).toLocaleTimeString("el-GR") : "–") + " · περάστηκαν: " + AUTO.n}</div>` +
+      (cf.length ? `<h2 class="warn">Θέλουν απόφαση · ${cf.length}</h2><div class="m">Δεν τα άγγιξα. Πάτα «Σταμάτα» και μετά τον σελιδοδείκτη για χειροκίνητο πέρασμα με επιλογές.</div><table>${cf.map(x => `<tr><td><b>${esc(x.n)}</b></td><td class="warn">${esc(x.why)}</td></tr>`).join("")}</table>` : "") +
+      `<h2>Τελευταία</h2><table>${AUTO.log.slice(0, 15).map(x => `<tr><td class="m">${new Date(x.t).toLocaleTimeString("el-GR")}</td><td><b>${esc(x.n)}</b></td><td class="${x.k}">${esc(x.msg)}</td></tr>`).join("") || '<tr><td class="m">Καμία κίνηση ακόμα.</td></tr>'}</table>` +
+      `<button class="btn gh" data-a="autostop">Σταμάτα το αυτόματο</button>`;
+  }
+  async function autoTick() {
+    if (!AUTO.on || busy) return;
+    busy = true;
+    try {
+      const v = await api("GET", { a: "ver" });
+      if (!v.ok) throw new Error(v.err === "auth" ? "Το PIN δεν ισχύει πια." : "Σφάλμα βάσης");
+      AUTO.last = Date.now(); AUTO.err = "";
+      if (v.ver !== AUTO.ver || v.pver !== AUTO.pver) {
+        const r = await api("GET", { a: "state", pver: AUTO.pver });
+        if (r.products) { AUTO.P = {}; r.products.forEach(p => { AUTO.P[String(p.id)] = p; }); }
+        AUTO.ver = r.ver; AUTO.pver = r.pver;
+        const pend = r.moves.filter(m => !m.syn && !m.x && m.p && m.ty !== "link");
+        const by = {}; pend.forEach(m => { (by[m.p] = by[m.p] || []).push(m); });
+        AUTO.conf = {};
+        for (const pid of Object.keys(by)) {
+          const nm = (AUTO.P[pid] || {}).n || "#" + pid, snap = r.site[pid] || {}, tgt = {}, ms = by[pid].sort((a, b) => a.t - b.t);
+          ALLW.forEach(w => { tgt[w] = Number(snap[w] || 0); });
+          ms.forEach(m => { if (tgt[m.f] !== undefined) tgt[m.f] -= Number(m.q); if (tgt[m.to] !== undefined) tgt[m.to] += Number(m.q); });
+          let L; try { L = await readProd(pid); } catch (e) { if (e.message === "login") throw new Error("Αποσυνδέθηκες από το admin. Κάνε login και ξαναπάτα τον σελιδοδείκτη."); AUTO.conf[pid] = { n: nm, why: e.message }; continue; }
+          if (ALLW.some(w => tgt[w] < 0)) { AUTO.conf[pid] = { n: nm, why: "Θα έβγαινε αρνητικό απόθεμα." }; continue; }
+          if (Object.keys(WHS).some(w => Number(snap[w] || 0) !== L.wh[w])) { AUTO.conf[pid] = { n: nm, why: "Το site άλλαξε με το χέρι από την τελευταία φορά." }; continue; }
+          const x = await applyStock({ pid, ms, snap, tgt, live: L }, "set");
+          if (x[0] === "ok") AUTO.n++; else AUTO.conf[pid] = { n: nm, why: x[1] };
+          AUTO.log.unshift({ t: Date.now(), n: nm, k: x[0], msg: x[1] }); AUTO.log = AUTO.log.slice(0, 50);
+        }
+        AUTO.pend = Object.keys(AUTO.conf).length;
+        if (AUTO.pend || Date.now() - AUTO.beat > 120000) await sendBeat(AUTO.pend);
+      } else if (Date.now() - AUTO.beat > 120000) await sendBeat(AUTO.pend || 0);
+    } catch (e) { AUTO.err = e.message; try { await sendBeat(-1, e.message); } catch (x) { } }
+    busy = false; autoView();
+  }
+  async function sendBeat(pend, err) {
+    AUTO.beat = Date.now();
+    await api("POST", null, { ops: [{ op: "beat", oid: "b" + Date.now(), pend: Math.max(0, pend), conf: Object.entries(AUTO.conf).map(([p, x]) => ({ p, n: x.n, why: x.why })), err: err || "" }] });
+  }
+  A.autostart = () => { AUTO.on = true; AUTO.ver = ""; autoView(); autoTick(); AUTO.timer = setInterval(autoTick, 25000); };
+  A.autostop = () => { AUTO.on = false; clearInterval(AUTO.timer); load(); };
   A.run = async () => {
     if (busy) return; busy = true;
     const res = [], st = plan.stock.filter(r => r.st === "ok" || r.st === "none" || (r.st === "conf" && choice[r.pid])), bars = plan.bars.filter(b => b.st === "ok");
@@ -244,21 +309,8 @@
     try {
       for (const r of st) {
         progress("Περνάω απόθεμα…", i++, N);
-        const L = await readProd(r.pid); /* ξαναδιαβάζω ακριβώς πριν γράψω */
-        const same = Object.keys(WHS).every(w => L.wh[w] === r.live.wh[w]);
-        if (!same) { res.push([r.pid, "bad", "Άλλαξε στο site μόλις τώρα. Δεν άγγιξα τίποτα."]); continue; }
-        const c = r.st === "conf" ? choice[r.pid] : "set";
-        const want = c === "keep" ? Object.assign({}, L.wh) : c === "add" ? addOnLive(r) : pick(r.tgt);
-        if (Object.values(want).some(q => q < 0)) { res.push([r.pid, "bad", "Θα έβγαινε αρνητικό. Δεν άγγιξα τίποτα."]); continue; }
-        backup({ kind: "stock", pid: r.pid, before: L.wh, want, moves: r.ms.map(m => m.id) });
-        for (const w of Object.keys(WHS)) if (want[w] !== L.wh[w]) await setStock(r.pid, w, want[w]);
-        const V = await readProd(r.pid);
-        const bad = Object.keys(WHS).filter(w => V.wh[w] !== want[w]);
-        if (bad.length) { res.push([r.pid, "bad", "Μετά τον έλεγχο δεν ταιριάζει: " + bad.map(w => NAMES[w] + " " + V.wh[w] + " αντί " + want[w]).join(", ") + ". Δεν σημειώθηκε ως περασμένο."]); continue; }
-        const snap = Object.assign({}, V.wh, { XALASMENA: r.tgt.XALASMENA });
-        const s = await api("POST", null, { ops: [{ op: "sync", oid: "s" + Date.now() + r.pid, ids: r.ms.map(m => m.id), site: { [r.pid]: snap } }] });
-        if (!s.ok || !(s.applied || []).length) { res.push([r.pid, "warn", "Γράφτηκε στο site, αλλά η εφαρμογή δεν το σημείωσε. Μην το ξαναπεράσεις, πες το στον Γιάννη."]); continue; }
-        res.push([r.pid, "ok", c === "keep" ? "Κράτησα το site ως έχει, οι κινήσεις σημειώθηκαν." : Object.keys(WHS).filter(w => want[w] !== L.wh[w]).map(w => NAMES[w] + " " + L.wh[w] + "→" + want[w]).join(", ") || "Καμία αλλαγή στο site, σημειώθηκε."]);
+        const x = await applyStock(r, r.st === "conf" ? choice[r.pid] : "set");
+        res.push([r.pid, x[0], x[1]]);
       }
       for (const b of bars) {
         progress("Γράφω barcode…", i++, N);
