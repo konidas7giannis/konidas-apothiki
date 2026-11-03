@@ -279,7 +279,7 @@ let syncing=false,flushT=null,lastPull=0;
 const num=v=>v===undefined||v===""?undefined:Number(v);
 function normMove(m){const o=Object.assign({},m);["t","q","syn","x","invAt","nw"].forEach(k=>{if(o[k]!==undefined)o[k]=num(o[k]);if(o[k]===undefined)delete o[k]});if(o.p==="")delete o.p;return o}
 function absorb(r){codeIdx=null;
-  if(r.products)S.P=r.products.map(p=>({id:String(p.id),n:p.n||"",m:p.code||"",e:p.ean||"",x:p.x?String(p.x).split(",").filter(Boolean):[],img:p.img?(/^https?:/.test(p.img)?p.img:"https://www.konidas.gr"+p.img):"",c:p.cost!==undefined&&p.cost!==""?Number(p.cost):null,pr:p.price!==undefined&&p.price!==""?Number(p.price):null}));
+  if(r.products)S.P=r.products.map(p=>({id:String(p.id),n:p.n||"",m:p.code||"",e:p.ean||"",x:p.x?String(p.x).split(",").filter(Boolean):[],img:p.img?(/^https?:/.test(p.img)?p.img:"https://www.konidas.gr"+p.img):"",c:p.cost!==undefined&&p.cost!==""?Number(p.cost):null,pr:p.price!==undefined&&p.price!==""?Number(p.price):null,cat:p.cat||"",br:p.br||"",tpl:p.tpl||""}));
   S.tasks=r.tasks||[];S.users=r.users||[];S.beat=r.beat||null;
   const site={};Object.keys(r.site||{}).forEach(id=>{site[id]={};Object.keys(r.site[id]).forEach(w=>{const q=Number(r.site[id][w]);if(q)site[id][w]=q})});S.site=site;
   S.mv=(r.moves||[]).map(normMove);S.unk=(r.unk||[]).map(u=>Object.assign({},u,{t:Number(u.t)}));
@@ -364,7 +364,12 @@ function recentOf(pid,hours){const cut=Date.now()-(hours||36)*36e5;return S.mv.f
 const mvLabel=m=>({move:"μεταφορά",receive:"παραλαβή",deliver:"παράδοση/πώληση",reserve:"κράτηση",count:"διόρθωση μέτρησης"}[m.ty]||m.ty);
 function recentTxt(pid){const r=recentOf(pid);if(!r.length)return "";const m=r[0];return "Πρόσφατα: "+esc(m.u)+" "+when(m.t)+" · "+mvLabel(m)+" "+m.q+" τεμ. "+esc(NAMES[m.f]||"")+" → "+esc(NAMES[m.to]||"")+(r.length>1?" (+"+(r.length-1)+")":"")}
 const stoN=w=>w==="XALASMENA"?"στα Χτυπημένα":"στο "+NAMES[w];
-const modelOf=p=>{const w=String(p.n||"").trim().split(/\s+/);return (w.slice(1).find(x=>/[0-9]/.test(x)&&/[a-z]/i.test(x))||w.slice(1).join(" ")||p.n)};
+const UNIT_RE=/^\d+([.,]\d+)?(kg|κιλ\S*|lt|l|btu|cm|mm|w|v|"|''|ιντσ\S*|inch)$/i;
+const modelOf=p=>{const w=String(p.n||"").trim().split(/\s+/),r=w.slice(1);
+  const mixed=r.find(x=>/[0-9]/.test(x)&&/[a-z]/i.test(x)&&!UNIT_RE.test(x)&&!/[\u0370-\u03ff\u1f00-\u1fff]/.test(x));if(mixed)return mixed;
+  /* π.χ. «Beko WTV 8712 XW πλυντήριο»: λατινικά/νούμερα στη σειρά μετά τη μάρκα */
+  const seq=[];for(const x of r){if(/^[A-Z0-9][A-Z0-9\-\/.+]*$/i.test(x)&&!/[\u0370-\u03ff\u1f00-\u1fff]/.test(x)&&!UNIT_RE.test(x)){seq.push(x);if(seq.length>=4)break}else if(seq.length)break}
+  return seq.length?seq.join(" "):(r.join(" ")||p.n)};
 const sq=(p,w)=>(S.site[p]&&S.site[p][w])||0;
 function lq(p,w){let q=sq(p,w);for(const m of pend()){if(m.p!==p)continue;if(m.f===w)q-=m.q;if(m.to===w)q+=m.q}return q}
 const tot=p=>WH.reduce((a,w)=>a+(w.virt||w.hold?0:lq(p,w.id)),0);
@@ -654,7 +659,7 @@ function paint(){ /* ενημέρωση χωρίς να ξαναξεκινά η 
 }
 function go(s,keepMsg){if(!keepMsg)V.msg=null;V.scr=s;render();window.scrollTo(0,0)}
 const backBtn=to=>""; /* το «πίσω» είναι πάντα πάνω αριστερά στην μπάρα */
-function parentOf(s){const k=V.kind;return {pin:"who",from:"home",to:"from",scan:"home",unknown:k==="count"?"countscan":"scan",confirmlink:"unknown",newdev:"unknown",acpart:k==="count"?"countscan":"scan",pickdup:k==="count"?"countscan":"scan",manual:k==="count"?"countscan":"scan",sum:"scan",sale:"home",sale2:"sale",count:"home",countscan:"home",countres:"countscan",find:"home",prod:"find",admin:"home",linkpick:"admin",scanwh:V.whT==="to"?"to":V.whT==="count"?"count":"from",done:"home"}[s]||null}
+function parentOf(s){const k=V.kind;return {pin:"who",from:"home",to:"from",scan:"home",unknown:k==="count"?"countscan":"scan",confirmlink:"unknown",newdev:"unknown",acpart:k==="count"?"countscan":"scan",pickdup:k==="count"?"countscan":"scan",manual:k==="count"?"countscan":"scan",sum:"scan",sale:"home",sale2:"sale",count:"home",countscan:"home",countres:"countscan",find:"home",prod:V.fromCat?"catl":"find",cat:"home",catl:"cat",admin:"home",linkpick:"admin",scanwh:V.whT==="to"?"to":V.whT==="count"?"count":"from",done:"home"}[s]||null}
 
 SCR.who=()=>'<div class="hello"><h1>Καλώς ήρθες</h1><div class="sub">Ποιος είσαι; Το επιλέγεις μία φορά, για να φαίνεται ποιος έκανε κάθε κίνηση.</div></div><div class="actions">'+
   USERS.map(u=>'<button class="act" data-a="setuser" data-v="'+esc(u)+'"><div class="ic">'+I.user+'</div><div><b>'+esc(u)+'</b></div><div class="chev">'+I.chev+'</div></button>').join("")+'</div>';
@@ -713,6 +718,7 @@ SCR.home=()=>{
    '<button class="act primary" data-a="startmove"><div class="ic">'+I.truck+'</div><div><b>Μετακίνηση</b><span>φόρτωση · παραλαβή · παράδοση</span></div><div class="chev">'+I.chev+'</div></button>'+
    '<button class="act" data-a="startsale"><div class="ic">'+I.tag+'</div><div><b>Πώληση</b><span>το πήρε τώρα ή κράτηση</span></div><div class="chev">'+I.chev+'</div></button>'+
    '<button class="act" data-a="startcount"><div class="ic">'+I.list+'</div><div><b>Μέτρηση</b><span>σκάναρε ό,τι βλέπεις στην αποθήκη</span></div><div class="chev">'+I.chev+'</div></button>'+
+   '<button class="act" data-a="startcat"><div class="ic">'+I.list+'</div><div><b>Τι έχουμε</b><span>ανά κατηγορία · μάρκα · μέγεθος</span></div><div class="chev">'+I.chev+'</div></button>'+
    '<button class="act" data-a="startfind"><div class="ic">'+I.search+'</div><div><b>Πού είναι;</b><span>βρες μια συσκευή</span></div><div class="chev">'+I.chev+'</div></button></div>';
   if(isAdmin()){const nn=S.mv.filter(m=>m.nw&&!m.p&&!m.x).length+(S.unk||[]).length,pp=pend().length;
     h+='<button class="adminlink" data-a="go" data-v="admin"><span>Διαχείριση</span><span class="row" style="flex:none;gap:6px">'+(nn?'<span class="badge">'+nn+' νέες</span>':"")+(pp?'<span class="badge gold">'+pp+' για site</span>':"")+I.chev+'</span></button>'}
@@ -831,8 +837,38 @@ DYN.find=()=>{const q=(V.q||"").trim();return (q?searchP(q,40):[]).map(p=>'<butt
 const eur=n=>n==null||isNaN(n)?"–":n.toLocaleString("el-GR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
 SCR.prod=()=>{const p=P(V.fp),c=custOf(p.id),hist=S.mv.filter(m=>m.p===p.id).sort((a,b)=>b.t-a.t).slice(0,5);
   const extra=(p.img?'<img src="'+esc(p.img)+'" alt="" style="width:120px;height:120px;object-fit:contain;background:#fff;border-radius:14px;align-self:center">':"")+(SQ()?'<div class="row" style="gap:8px;flex-wrap:wrap"><span class="badge">Τιμή '+eur(p.pr)+'</span><span class="badge gold">Κόστος '+eur(p.c)+' χ.ΦΠΑ</span></div><div class="row" style="gap:6px;margin-top:4px"><input class="txt" style="flex:1;padding:10px" data-in="tk" value="'+esc(V.tk||"")+'" placeholder="Δουλειά για Claude (π.χ. χαρακτηριστικά, τιμή ανταγωνιστών)"><button class="btn btn-gold btn-sm" data-a="taskadd" data-v="'+p.id+'">Για Claude</button></div>':"");
-  return backBtn("find")+'<h1>'+esc(p.n)+'</h1><div class="sub">'+esc(p.m)+' · '+esc(p.e)+'</div>'+extra+(recentTxt(p.id)?'<div class="msg m-warn">'+I.warn+'<div>'+recentTxt(p.id)+'</div></div>':"")+(isAdmin()&&lq(p.id,"XALASMENA")>0?'<button class="btn btn-bad btn-sm" data-a="writeoff" data-v="'+p.id+'">Απόσυρση 1 χτυπημένης (δεν πουλιέται)</button>':"")+(SQ()?'<div class="stock">'+WH.map(w=>{const q=lq(p.id,w.id),s=sq(p.id,w.id);return '<div class="wh'+(q?"":" z")+'"><span>'+esc(w.n)+'</span><b>'+q+'</b>'+(w.id==="PARAGGELIA"&&q&&c?'<em>'+esc(c)+'</em>':"")+(q!==s?'<em>στο site: '+s+'</em>':"")+'</div>'}).join("")+'</div>':(()=>{const ws=WH.filter(w=>!w.virt&&lq(p.id,w.id)>0);return ws.length?'<h2>Βρίσκεται</h2><div class="list">'+ws.map(w=>'<div class="prow"><div><b>'+esc(w.n)+'</b>'+(w.h?'<small>'+esc(w.h)+'</small>':"")+'</div></div>').join("")+'</div>'+(lq(p.id,"PARAGGELIA")>0&&c?'<div class="muted">Υπάρχει κράτηση για '+esc(c)+'.</div>':""):'<div class="msg m-bad">'+I.warn+'<div>Δεν υπάρχει διαθέσιμο σε καμία αποθήκη.</div></div>'})())+
+  return backBtn(V.fromCat?"catl":"find")+'<h1>'+esc(p.n)+'</h1><div class="sub">'+esc(p.m)+' · '+esc(p.e)+'</div>'+extra+(recentTxt(p.id)?'<div class="msg m-warn">'+I.warn+'<div>'+recentTxt(p.id)+'</div></div>':"")+(isAdmin()&&lq(p.id,"XALASMENA")>0?'<button class="btn btn-bad btn-sm" data-a="writeoff" data-v="'+p.id+'">Απόσυρση 1 χτυπημένης (δεν πουλιέται)</button>':"")+(SQ()?'<div class="stock">'+WH.map(w=>{const q=lq(p.id,w.id),s=sq(p.id,w.id);return '<div class="wh'+(q?"":" z")+'"><span>'+esc(w.n)+'</span><b>'+q+'</b>'+(w.id==="PARAGGELIA"&&q&&c?'<em>'+esc(c)+'</em>':"")+(q!==s?'<em>στο site: '+s+'</em>':"")+'</div>'}).join("")+'</div>':(()=>{const ws=WH.filter(w=>!w.virt&&lq(p.id,w.id)>0);return ws.length?'<h2>Βρίσκεται</h2><div class="list">'+ws.map(w=>'<div class="prow"><div><b>'+esc(w.n)+'</b>'+(w.h?'<small>'+esc(w.h)+'</small>':"")+'</div></div>').join("")+'</div>'+(lq(p.id,"PARAGGELIA")>0&&c?'<div class="muted">Υπάρχει κράτηση για '+esc(c)+'.</div>':""):'<div class="msg m-bad">'+I.warn+'<div>Δεν υπάρχει διαθέσιμο σε καμία αποθήκη.</div></div>'})())+
   (hist.length?'<h2>Τελευταίες κινήσεις</h2><div class="list">'+hist.map(mvRow).join("")+'</div>':"")};
+
+/* Τι έχουμε: κατηγορία → μάρκα / μέγεθος → μοντέλα με ποσότητα ανά αποθήκη */
+function specOf(p){const n=String(p.n||"");let m;
+  if(m=/(\d{1,2}(?:[.,]\d)?)\s*(?:kg|κιλ)/i.exec(n))return (m[1].replace(",","."))+" kg";
+  if(isAC(p)){if(m=/(\d{1,2})[.,]?000\s*btu/i.exec(n))return m[1].padStart(2,"0")+".000 BTU";if(m=/[-\s](09|12|18|24)(?!\d)/.exec(n))return m[1]+".000 BTU";}
+  if(m=/(\d{2,3})\s*(?:"|''|”|ιντσ|inch|΄΄)/i.exec(n))return m[1]+"″";
+  if(m=/(\d{2,3})\s*(?:lt|λίτρ|λιτρ|l)\b/i.exec(n))return m[1]+" lt";
+  if(m=/(\d{2})\s*cm\b/i.exec(n))return m[1]+" cm";
+  return ""}
+const catOf=p=>p.cat||"Χωρίς κατηγορία",brOf=p=>(p.br||String(p.n||"").split(/\s+/)[0]||"").trim().toUpperCase();
+function catSet(){return S.P.filter(p=>V.c0||tot(p.id)>0)}
+SCR.cat=()=>backBtn("home")+'<h1>Τι έχουμε</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="ψάξε κατηγορία, π.χ. πλυντ" autocomplete="off"><div class="list" id="dyn">'+DYN.cat()+'</div>';
+DYN.cat=()=>{const g={};for(const p of catSet()){const c=catOf(p);(g[c]=g[c]||{n:0,u:0}).n++;g[c].u+=tot(p.id)}
+  const q=normS(V.q||"");const rows=Object.entries(g).filter(([c])=>!q||normS(c).includes(q)).sort((a,b)=>b[1].u-a[1].u);
+  return '<button class="quick" data-a="catall" style="margin:0"><span>'+(V.c0?'Δείχνω και όσα δεν έχουν απόθεμα':'Δείχνω μόνο όσα έχουμε')+'<small>πάτα για αλλαγή</small></span></button>'+
+  (rows.length?rows.map(([c,x])=>'<button class="prow" data-a="catpick" data-v="'+esc(c)+'"><div><b>'+esc(c)+'</b><small>'+plural(x.n,"μοντέλο","μοντέλα")+'</small></div>'+(SQ()?'<span class="n">'+x.u+'<small>τεμ.</small></span>':I.chev)+'</button>').join(""):'<div class="empty">Δεν βρέθηκε κατηγορία.</div>')+
+  (S.P.some(p=>!p.cat)?'<div class="muted" style="font-size:13px">Οι κατηγορίες έρχονται από το konidas.gr και ενημερώνονται μόνες τους.</div>':'')};
+SCR.catl=()=>backBtn("cat")+'<h1>'+esc(V.cc||"")+'</h1><input class="search" id="auto" data-in="q" value="'+esc(V.q||"")+'" placeholder="φίλτρο: μοντέλο ή λέξη" autocomplete="off"><div class="list" id="dyn">'+DYN.catl()+'</div>';
+DYN.catl=()=>{const base=catSet().filter(p=>catOf(p)===V.cc),ts=tokens(V.q||"");
+  const L=base.filter(p=>(!V.cb||brOf(p)===V.cb)&&(!V.cs||specOf(p)===V.cs)&&(!ts.length||ts.every(t=>normS(p.n+" "+p.m).includes(t))));
+  const cnt=(arr,f)=>{const o={};for(const p of arr){const k=f(p);if(!k)continue;(o[k]=o[k]||{n:0,u:0}).n++;o[k].u+=tot(p.id)}return Object.entries(o).sort((a,b)=>b[1].u-a[1].u||a[0].localeCompare(b[0]))};
+  const chip=(a,v,on,lbl)=>'<button class="btn btn-sm '+(on?'btn-gold':'btn-ghost')+'" style="flex:none" data-a="'+a+'" data-v="'+esc(v)+'">'+esc(lbl)+'</button>';
+  const brs=cnt(base.filter(p=>!V.cs||specOf(p)===V.cs),brOf),sps=cnt(base.filter(p=>!V.cb||brOf(p)===V.cb),specOf);
+  const units=L.reduce((a,p)=>a+tot(p.id),0);
+  const whs=WH.filter(w=>!w.virt);
+  return (SQ()?'<div class="sentence"><b>'+units+' τεμ.</b> σε '+plural(L.length,"μοντέλο","μοντέλα")+(V.cb?' · '+esc(V.cb):'')+(V.cs?' · '+esc(V.cs):'')+'</div>':'')+
+  '<div class="muted" style="font-size:13px;margin-top:4px">Μάρκα</div><div class="row" style="gap:6px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px">'+brs.map(([k,x])=>chip("catbr",k,V.cb===k,k+(SQ()?" · "+x.u:""))).join("")+'</div>'+
+  (sps.length?'<div class="muted" style="font-size:13px">Μέγεθος</div><div class="row" style="gap:6px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px">'+sps.sort((a,b)=>parseFloat(a[0])-parseFloat(b[0])).map(([k,x])=>chip("catsp",k,V.cs===k,k+(SQ()?" · "+x.u:""))).join("")+'</div>':'')+
+  L.sort((a,b)=>tot(b.id)-tot(a.id)||String(a.n).localeCompare(String(b.n))).map(p=>{const t=tot(p.id),w=whs.filter(x=>lq(p.id,x.id)>0).map(x=>esc(x.n)+(SQ()?" "+lq(p.id,x.id):"")).join(" · ");
+    return '<button class="prow" data-a="catprod" data-v="'+p.id+'"><div><span class="mdlbig" style="font-size:17px">'+esc(modelOf(p))+'</span><small>'+esc(p.n)+(specOf(p)?' · <b>'+esc(specOf(p))+'</b>':'')+'</small><small style="display:block;color:var(--navy);font-weight:600">'+(w||'δεν υπάρχει σε αποθήκη')+'</small></div>'+(SQ()?'<span class="n">'+t+'<small>τεμ.</small></span>':availBadge(p))+'</button>'}).join("")||'<div class="empty">Τίποτα με αυτά τα φίλτρα.</div>'};
 
 /* Διαχείριση */
 SCR.admin=()=>{const t=V.at||"new",nn=S.mv.filter(m=>m.nw&&!m.p&&!m.x).length+(S.unk||[]).length,pp=pend().length;
@@ -986,7 +1022,13 @@ const A={
   repdrop:v=>{OP({op:"patchMove",id:v,set:{x:Date.now()}});render()},
   countsend:()=>{addMove({id:uid(),t:Date.now(),u:S.user,ty:"count",p:null,q:0,f:V.cw,to:V.cw,note:"ΜΕΤΡΗΣΗ "+V.cart.map(c=>c.p+":"+c.q).join(",")});clearDraft();go("home");toast("Στάλθηκε στον διαχειριστή για έλεγχο.")},
   startfind:()=>{V.q="";V.focus=1;go("find")},
-  findpick:v=>{V.fp=v;go("prod")},
+  findpick:v=>{V.fp=v;V.fromCat=0;go("prod")},
+  startcat:()=>{V.q="";V.cc=null;V.cb=null;V.cs=null;V.c0=0;go("cat")},
+  catpick:v=>{V.cc=v;V.cb=null;V.cs=null;V.q="";go("catl")},
+  catbr:v=>{V.cb=V.cb===v?null:v;paint()},
+  catsp:v=>{V.cs=V.cs===v?null:v;paint()},
+  catall:()=>{V.c0=V.c0?0:1;paint()},
+  catprod:v=>{V.fp=v;V.fromCat=1;go("prod")},
   at:v=>{V.at=v;V.msg=null;render()},
   mx:v=>{OP({op:"patchMove",id:v,set:{x:Date.now()}});render();toast("Η κίνηση ακυρώθηκε.","Αναίρεση",()=>{OP({op:"patchMove",id:v,set:{x:null}});render()})},
   minv:v=>{OP({op:"patchMove",id:v,set:{doc:"inv",invAt:Date.now()}});render();toast("Σημειώθηκε ότι ήρθε τιμολόγιο.")},
